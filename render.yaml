@@ -26,7 +26,7 @@ services:
     # One worker: the ledger is loaded into memory and written by the app, so
     # several processes would each hold their own copy of the chain. A single
     # threaded worker handles a lecture hall comfortably.
-    startCommand: gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+    startCommand: gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 300
     healthCheckPath: /api/system/health
     envVars:
       - key: PYTHON_VERSION
@@ -54,16 +54,14 @@ services:
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false                        # the whole service-account JSON, on one line
 
-      # ----------------------------------------------------------- anchoring --
-      # Only needed when ANCHOR_PROVIDER=ethereum.
-      - key: ETHEREUM_RPC_URL
-        sync: false
-      - key: ETHEREUM_CONTRACT
-        sync: false
-      - key: ETHEREUM_PRIVATE_KEY
-        sync: false
       - key: ETHEREUM_CHAIN_ID
-        value: "11155111"                  # Sepolia testnet
+        value: "11155111"                  # Sepolia testnet (used only by ethereum anchoring)
+
+      # ----------------------------------------------------------- anchoring --
+      # Only needed if you switch ANCHOR_PROVIDER to `ethereum`. Add these three
+      # in the Render dashboard when you get there -- the app treats an empty
+      # value as "not configured", so leaving them out changes nothing.
+      #   ETHEREUM_RPC_URL, ETHEREUM_CONTRACT, ETHEREUM_PRIVATE_KEY
 
 # ----------------------------------------------------------------------------
 #  A disk would keep data/ between deploys. The free plan does not offer one,
