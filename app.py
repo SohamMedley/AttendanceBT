@@ -95,6 +95,11 @@ def generate_qr_token(window=None):
   return f"ATT-{window}-{sig}"
 
 
+@app.route("/healthz")
+def health():
+  return jsonify(status="ok"), 200
+
+
 @app.route("/")
 def index():
   return render_template("index.html")

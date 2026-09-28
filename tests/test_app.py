@@ -12,6 +12,11 @@ class AttendanceTests(unittest.TestCase):
         data.update(changes)
         return self.client.post('/api/scan', json=data)
 
+    def test_health(self):
+        response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"status": "ok"})
+
     def test_home_and_qr(self):
         self.assertEqual(self.client.get('/').status_code, 200)
         response = self.client.get('/api/qr.svg')
