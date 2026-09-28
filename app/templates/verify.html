@@ -8,7 +8,7 @@
   <section class="card reveal">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#10003;</span> Verify a transaction</div>
+        <div class="card-title">{{ icon('check') }} Verify a transaction</div>
         <div class="card-sub">Paste a transaction id, or open this page from any record.</div>
       </div>
     </div>
@@ -34,7 +34,7 @@
 
   {% if tx_id and not receipt %}
     <div class="callout bad reveal">
-      <h4>&#9888; Not found</h4>
+      <h4>{{ icon('alert') }} Not found</h4>
       <p>No transaction with that id exists on this chain. Check for a typo, or the record
          may not have been sealed into a block yet.</p>
     </div>
@@ -88,7 +88,7 @@
     <section class="card reveal">
       <div class="card-head">
         <div>
-          <div class="card-title"><span class="ico">&#9939;</span> Merkle inclusion proof</div>
+          <div class="card-title">{{ icon('link') }} Merkle inclusion proof</div>
           <div class="card-sub">Proves this record is inside the block, without revealing the others.</div>
         </div>
       </div>
@@ -102,7 +102,7 @@ match  = {{ 'TRUE' if receipt.merkle_proof_verified else 'FALSE' }}</pre>
 
     <section class="card reveal">
       <div class="card-head">
-        <div class="card-title"><span class="ico">&#9636;</span> Raw values</div>
+        <div class="card-title">{{ icon('layout') }} Raw values</div>
         <div class="card-sub">Click any hash to copy it.</div>
       </div>
       <dl class="dl">

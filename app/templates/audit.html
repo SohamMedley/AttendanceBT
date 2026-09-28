@@ -49,7 +49,7 @@
   <section class="card reveal">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9873;</span> Anomaly detection</div>
+        <div class="card-title">{{ icon('flag') }} Anomaly detection</div>
         <div class="card-sub">{{ anomalies.scanned_records }} records scanned.</div>
       </div>
     </div>
@@ -80,7 +80,7 @@
         </div>
       {% else %}
         <div class="empty">
-          <div class="glyph">&#10003;</div>
+          <div class="glyph">{{ icon('check') }}</div>
           <div>No anomalies detected.</div>
           <div class="tiny">Every detector ran and found nothing unusual.</div>
         </div>
@@ -100,12 +100,12 @@
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9776;</span> Action trail</div>
+        <div class="card-title">{{ icon('list') }} Action trail</div>
         <div class="card-sub">Append-only. Rejections are recorded too.</div>
       </div>
     </div>
     <div class="table-wrap scroll-y" style="max-height:580px;">
-      <table>
+      <table data-collapse="15">
         <thead><tr><th>When</th><th>Action</th><th>Actor</th><th>Target</th></tr></thead>
         <tbody>
           {% for entry in audit %}
@@ -121,7 +121,7 @@
           </tr>
           {% else %}
           <tr><td colspan="4">
-            <div class="empty"><div class="glyph">&#9744;</div><div>No audit entries yet.</div></div>
+            <div class="empty"><div class="glyph">{{ icon('inbox') }}</div><div>No audit entries yet.</div></div>
           </td></tr>
           {% endfor %}
         </tbody>

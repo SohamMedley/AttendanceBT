@@ -17,9 +17,9 @@
     <svg viewBox="0 0 74 74" width="104" height="104" aria-hidden="true">
       <defs>
         <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#123a63"/>
-          <stop offset="55%" stop-color="#17566e"/>
-          <stop offset="100%" stop-color="#1a7f7a"/>
+          <stop offset="0%" stop-color="#1e3a8a"/>
+          <stop offset="55%" stop-color="#4338ca"/>
+          <stop offset="100%" stop-color="#7c3aed"/>
         </linearGradient>
       </defs>
       <circle class="track" cx="37" cy="37" r="31"></circle>
@@ -53,7 +53,7 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9636;</span> Subject-wise attendance</div>
+      <div class="card-title">{{ icon('layout') }} Subject-wise attendance</div>
       <div class="card-sub">University of Mumbai requires {{ overall.minimum_required }}% per subject.</div>
     </div>
   </div>
@@ -102,7 +102,7 @@
 <div class="grid side">
   <section class="card reveal">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9911;</span> Identity on the chain</div>
+      <div class="card-title">{{ icon('user-check') }} Identity on the chain</div>
     </div>
     <dl class="dl">
       <dt>Public key</dt>
@@ -128,7 +128,7 @@
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9776;</span> Recent records</div>
+        <div class="card-title">{{ icon('list') }} Recent records</div>
         <div class="card-sub">Newest first.</div>
       </div>
     </div>
@@ -149,7 +149,7 @@
       </div>
       {% else %}
       <div class="empty">
-        <div class="glyph">&#9744;</div>
+        <div class="glyph">{{ icon('inbox') }}</div>
         <div>No attendance records yet.</div>
       </div>
       {% endfor %}

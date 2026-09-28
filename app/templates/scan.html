@@ -9,7 +9,7 @@
   <section class="card reveal">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9635;</span> Step 1 &middot; Scan the code</div>
+        <div class="card-title">{{ icon('qr') }} Step 1 &middot; Scan the code</div>
         <div class="card-sub">Point the camera at the QR code on the projector.</div>
       </div>
       <span class="badge" id="camera-badge">camera idle</span>
@@ -34,7 +34,7 @@
 
     <hr class="divider">
 
-    <div class="card-title" style="margin-bottom:8px;"><span class="ico">&#9000;</span> Or enter the code manually</div>
+    <div class="card-title" style="margin-bottom:8px;">{{ icon('keyboard') }} Or enter the code manually</div>
     <p class="small muted" style="margin-bottom:12px;">
       If your camera is not available, ask the faculty member for the token shown under
       the QR code.
@@ -49,7 +49,7 @@
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9911;</span> Step 2 &middot; Confirm your identity</div>
+        <div class="card-title">{{ icon('user-check') }} Step 2 &middot; Confirm your identity</div>
         <div class="card-sub">Your mark is signed with your key before it is sent.</div>
       </div>
     </div>
@@ -83,7 +83,7 @@
   {# -------------------------------- already? ------------------------------- #}
   <section class="card reveal" style="--i:2;">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#10003;</span> Already marked?</div>
+      <div class="card-title">{{ icon('check') }} Already marked?</div>
     </div>
     <p class="small muted" style="margin-bottom:12px;">
       Look any transaction up by its id to see the full proof.

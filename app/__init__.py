@@ -108,6 +108,17 @@ def _build_commit() -> str:
 def _register_template_helpers(app: Flask, services: Services) -> None:
     """Values every template needs (college identity, backend badge)."""
 
+    # Icons live in templates/_icons.html as stroked SVG macros and are exposed
+    # here as a global, so any template can write {{ icon('anchor') }} without
+    # an import. Inline SVG is not decoration for its own sake: the first
+    # version of this interface used Unicode characters as icons, and Windows
+    # renders several of those (the chain, the anchor, the flag, the gear) as
+    # full-colour emoji that ignore the page's colour and size -- the navigation
+    # looked like a row of mismatched stickers. An SVG cannot be substituted.
+    app.jinja_env.globals["icon"] = (
+        app.jinja_env.get_template("_icons.html").make_module({}).icon
+    )
+
     def _safe_chain_stats() -> dict:
         """Chain statistics that can never themselves raise.
 

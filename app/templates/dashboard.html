@@ -61,7 +61,7 @@
   <section class="card reveal" id="start-session">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9654;</span> Start a lecture session</div>
+        <div class="card-title">{{ icon('play') }} Start a lecture session</div>
         <div class="card-sub">The projector code rotates on its own.</div>
       </div>
       <span class="badge info dot">rotating QR</span>
@@ -69,7 +69,7 @@
 
     {% if open_session %}
       <div class="callout warn" style="margin-bottom:16px;">
-        <h4>&#9888; A session is already open</h4>
+        <h4>{{ icon('alert') }} A session is already open</h4>
         <p>
           <strong>{{ open_session.subject_code }} &mdash; {{ open_session.subject_name }}</strong><br>
           Started {{ open_session.started_at | time_only }} in {{ open_session.room }},
@@ -127,7 +127,7 @@
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9636;</span> Attendance by subject</div>
+        <div class="card-title">{{ icon('layout') }} Attendance by subject</div>
         <div class="card-sub">Average turnout per subject.</div>
       </div>
     </div>
@@ -149,7 +149,7 @@
           </span>
         </div>
       {% else %}
-        <div class="empty"><div class="glyph">&#9636;</div><div>No subjects yet.</div></div>
+        <div class="empty"><div class="glyph">{{ icon('layout') }}</div><div>No subjects yet.</div></div>
       {% endfor %}
     </div>
   </section>
@@ -159,7 +159,7 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9776;</span> Recent sessions</div>
+      <div class="card-title">{{ icon('list') }} Recent sessions</div>
       <div class="card-sub">One lecture is one block.</div>
     </div>
     <span class="badge">{{ sessions | length }} shown</span>
@@ -205,7 +205,7 @@
         {% else %}
         <tr><td colspan="9">
           <div class="empty">
-            <div class="glyph">&#9654;</div>
+            <div class="glyph">{{ icon('play') }}</div>
             <div>No sessions yet.</div>
             <div class="tiny">Start one above, or run <code>python manage.py demo</code>.</div>
           </div>
@@ -220,13 +220,13 @@
 <section class="card reveal" id="students">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9783;</span> Students</div>
+      <div class="card-title">{{ icon('users') }} Students</div>
       <div class="card-sub">{{ students | length }} on the BE register.</div>
     </div>
     <input id="student-search" placeholder="Search name or roll number&hellip;" style="max-width:280px;">
   </div>
   <div class="table-wrap scroll-y" style="max-height:560px;">
-    <table id="student-table">
+    <table id="student-table" data-collapse="12">
       <thead>
         <tr><th>Roll no.</th><th>Name</th><th>Year</th><th>Batch</th><th>Wallet address</th><th></th></tr>
       </thead>
@@ -312,13 +312,9 @@ async function closeSession(sessionId) {
 const search = document.getElementById("student-search");
 if (search) {
   search.addEventListener("input", () => {
-    const term = search.value.trim().toLowerCase();
-    let shown = 0;
-    document.querySelectorAll("#student-table tbody tr").forEach((row) => {
-      const match = !term || (row.dataset.search || "").includes(term);
-      row.style.display = match ? "" : "none";
-      if (match) shown += 1;
-    });
+    // filterTable searches every row and overrides the "first 12" collapse
+    // while a term is typed, so a name can never be hidden behind "Show all".
+    const shown = window.filterTable("#student-table", search.value);
     search.setAttribute("aria-label", `${shown} students shown`);
   });
 }

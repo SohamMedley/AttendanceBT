@@ -50,7 +50,7 @@
   <section class="card reveal">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9875;</span> Pending root</div>
+        <div class="card-title">{{ icon('anchor') }} Pending root</div>
         <div class="card-sub">What the next anchor would commit to.</div>
       </div>
     </div>
@@ -65,7 +65,7 @@
       </dl>
     {% else %}
       <div class="empty">
-        <div class="glyph">&#10003;</div>
+        <div class="glyph">{{ icon('check') }}</div>
         <div>Everything on the chain has already been anchored.</div>
         <div class="tiny">Take more attendance, then anchor again.</div>
       </div>
@@ -74,7 +74,7 @@
 
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9729;</span> Available providers</div>
+      <div class="card-title">{{ icon('cloud') }} Available providers</div>
     </div>
     <div class="list">
       {% for provider in providers %}
@@ -105,7 +105,7 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9939;</span> Anchor history</div>
+      <div class="card-title">{{ icon('link') }} Anchor history</div>
       <div class="card-sub">Each anchor commits to the one before it.</div>
     </div>
   </div>
@@ -143,7 +143,7 @@
         {% else %}
         <tr><td colspan="8">
           <div class="empty">
-            <div class="glyph">&#9875;</div>
+            <div class="glyph">{{ icon('anchor') }}</div>
             <div>No anchors yet.</div>
             <div class="tiny">Click &ldquo;Anchor pending records&rdquo; to publish the first root.</div>
           </div>
@@ -157,7 +157,7 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#10003;</span> Verify a proof independently</div>
+      <div class="card-title">{{ icon('check') }} Verify a proof independently</div>
       <div class="card-sub">No trust in this application, this server, or this college required.</div>
     </div>
     <a class="btn btn-sm btn-ghost" href="{{ url_for('chain_api.contract_source') }}" target="_blank" rel="noopener">Solidity source</a>

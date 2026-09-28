@@ -14,7 +14,7 @@
   <section class="card reveal">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9723;</span> Storage backend</div>
+        <div class="card-title">{{ icon('database') }} Storage backend</div>
         <div class="card-sub">Where the register and the chain are kept.</div>
       </div>
       {% if status.storage.backend == 'firestore' %}
@@ -63,7 +63,7 @@
 
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9939;</span> Chain parameters</div>
+      <div class="card-title">{{ icon('link') }} Chain parameters</div>
     </div>
     <dl class="dl">
       <dt>Chain name</dt><dd class="mono">{{ status.chain.chain_name }}</dd>
@@ -99,7 +99,7 @@
 <div class="grid cols-2">
   <section class="card reveal">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9783;</span> Register</div>
+      <div class="card-title">{{ icon('users') }} Register</div>
     </div>
     <div class="grid cols-3" style="gap:12px;">
       <div class="stat"><div class="label">Students</div><div class="value" data-count="{{ status.register.students }}">0</div></div>
@@ -113,7 +113,7 @@
 
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9881;</span> Attendance policy</div>
+      <div class="card-title">{{ icon('settings') }} Attendance policy</div>
     </div>
     <div class="setting-row">
       <div><div class="k">Minimum attendance</div><div class="d">{{ college.affiliation }} requirement</div></div>
@@ -153,7 +153,7 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9002;</span> Command reference</div>
+      <div class="card-title">{{ icon('terminal') }} Command reference</div>
       <div class="card-sub">Everything the CLI can do, alongside the web app.</div>
     </div>
   </div>

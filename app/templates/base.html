@@ -36,35 +36,35 @@
       </span>
     </a>
 
-    <nav class="nav">
+    <nav class="nav" id="main-nav">
       <div class="nav-group">
         <div class="nav-label">Attendance</div>
         <a class="nav-item {% if active == 'home' %}active{% endif %}" href="{{ url_for('pages.home') }}">
-          <span class="ico">&#9672;</span><span class="label-text">Overview</span></a>
+          {{ icon('gauge') }}<span class="label-text">Overview</span></a>
         <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{{ url_for('pages.dashboard') }}">
-          <span class="ico">&#9636;</span><span class="label-text">Faculty Console</span></a>
+          {{ icon('layout') }}<span class="label-text">Faculty Console</span></a>
         <a class="nav-item {% if active == 'scan' %}active{% endif %}" href="{{ url_for('pages.scan') }}">
-          <span class="ico">&#9635;</span><span class="label-text">Mark Attendance</span></a>
+          {{ icon('qr') }}<span class="label-text">Mark Attendance</span></a>
         <a class="nav-item {% if active == 'students' %}active{% endif %}" href="{{ url_for('pages.dashboard') }}#students">
-          <span class="ico">&#9776;</span><span class="label-text">Students</span></a>
+          {{ icon('list') }}<span class="label-text">Students</span></a>
       </div>
 
       <div class="nav-group">
         <div class="nav-label">Blockchain</div>
         <a class="nav-item {% if active == 'explorer' %}active{% endif %}" href="{{ url_for('pages.explorer') }}">
-          <span class="ico">&#9939;</span><span class="label-text">Explorer</span></a>
+          {{ icon('link') }}<span class="label-text">Explorer</span></a>
         <a class="nav-item {% if active == 'verify' %}active{% endif %}" href="{{ url_for('pages.verify_page') }}">
-          <span class="ico">&#10003;</span><span class="label-text">Verify a Record</span></a>
+          {{ icon('check') }}<span class="label-text">Verify a Record</span></a>
         <a class="nav-item {% if active == 'anchors' %}active{% endif %}" href="{{ url_for('pages.anchors_page') }}">
-          <span class="ico">&#9875;</span><span class="label-text">Public Anchoring</span></a>
+          {{ icon('anchor') }}<span class="label-text">Public Anchoring</span></a>
         <a class="nav-item {% if active == 'audit' %}active{% endif %}" href="{{ url_for('pages.audit_page') }}">
-          <span class="ico">&#9873;</span><span class="label-text">Audit &amp; Integrity</span></a>
+          {{ icon('flag') }}<span class="label-text">Audit &amp; Integrity</span></a>
       </div>
 
       <div class="nav-group">
         <div class="nav-label">System</div>
         <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="{{ url_for('pages.settings_page') }}">
-          <span class="ico">&#9881;</span><span class="label-text">Settings &amp; Status</span></a>
+          {{ icon('settings') }}<span class="label-text">Settings &amp; Status</span></a>
         <a class="nav-item" href="{{ url_for('chain_api.status') }}" target="_blank" rel="noopener">
           <span class="ico">{ }</span><span class="label-text">API Status</span></a>
       </div>
@@ -77,18 +77,25 @@
       <div class="np-title" id="np-title">&mdash;</div>
       <div class="np-meta" id="np-meta">&mdash;</div>
       <a class="btn btn-primary btn-sm btn-block" href="{{ url_for('pages.scan') }}">
-        <span class="ico">&#9635;</span> Open scanner</a>
+        {{ icon('qr') }} Open scanner</a>
     </div>
 
     <div class="sidebar-foot">
-      <span>
+      <span class="backend-badge">
         {% if storage_backend == 'firestore' %}
           <span class="badge ok dot">Firestore</span>
         {% else %}
           <span class="badge dot">Local JSON</span>
         {% endif %}
       </span>
-      <button class="theme-toggle" type="button" aria-label="Switch theme">&#9788;</button>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">
+        <span class="t-light">{{ icon('moon') }}</span>
+        <span class="t-dark">{{ icon('sun') }}</span>
+      </button>
+      <button class="nav-toggle" type="button" aria-label="Menu"
+              aria-expanded="false" aria-controls="main-nav" data-nav-toggle>
+        {{ icon('menu') }}
+      </button>
     </div>
   </aside>
 

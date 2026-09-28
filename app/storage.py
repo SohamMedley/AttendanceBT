@@ -242,6 +242,22 @@ def matches_filters(document: Mapping[str, Any], filters: Mapping[str, Any]) -> 
     return True
 
 
+
+def needs_an_index(message: str) -> bool:
+    """True when a Firestore error is the "add a composite index" rejection.
+
+    The API words this differently across surfaces ("The query requires an
+    index", "FAILED_PRECONDITION", a link to the index console), so match
+    loosely on the message we actually get back.
+    """
+    lowered = message.lower()
+    if "requires an index" in lowered or "failed_precondition" in lowered:
+        return True
+    if "console.firebase.google.com" in lowered:
+        return "index" in lowered or "create_composite" in lowered
+    return False
+
+
 def sort_documents(
     documents: Sequence[dict[str, Any]],
     order_by: str | None,
@@ -505,6 +521,8 @@ class LocalStore(Store):
 
 API_ROOT = "https://firestore.googleapis.com/v1"
 PAGE_SIZE = 300
+#: Hard stop for the paging loop (300 x 100 = 30,000 documents per query).
+MAX_PAGES = 100
 TOKEN_SAFETY_MARGIN = 60  # refresh a minute before real expiry
 
 
@@ -800,12 +818,28 @@ class FirestoreStore(Store):
         order_by: str | None = None,
         descending: bool = False,
     ) -> list[dict[str, Any]]:
-        """List documents.
+        """List documents: filters are pushed down, ordering happens here.
 
-        Exact-match filters are pushed down to Firestore as an
-        ``AND``-combined query. Comparison filters (tuples) are applied
-        client-side, which keeps the query builder small and avoids composite
-        index requirements -- fine at this project's data volume.
+        Why this query is deliberately so plain
+        ---------------------------------------
+        Firestore serves a query from a *composite* index as soon as an equality
+        filter is combined with an ``orderBy`` on a different field. Composite
+        indexes are created by hand in the Firebase console and the automatic
+        single-field indexes cannot serve those queries, so a query the
+        application builds for itself only works on a project where somebody
+        remembered to create the index.
+
+        This file learned that on a real deployment: every page -- overview,
+        students, explorer, audit -- died with HTTP 400 FAILED_PRECONDITION and
+        "The query requires an index", while the local JSON store, which sorts
+        in Python, was perfectly happy. The Firebase project was fine; the query
+        was the problem.
+
+        So: equality filters (which need no composite index) are pushed down,
+        and everything else -- comparison filters, ordering and the limit -- is
+        applied here in Python. At this project's data volume that is one
+        paginated read of the matching documents, and it can never raise
+        "requires an index" against a project we do not control.
         """
         server_filters: dict[str, Any] = {}
         client_filters: dict[str, Any] = {}
@@ -815,8 +849,12 @@ class FirestoreStore(Store):
             else:
                 server_filters[field] = condition
 
-        documents = self._run_query(collection, server_filters, order_by, descending)
+        documents = self._run_query(collection, server_filters)
 
+        # Re-applied locally: when the scan fallback below runs, the filtering
+        # that could not be pushed down has to happen here.
+        if server_filters:
+            documents = [d for d in documents if matches_filters(d, server_filters)]
         if client_filters:
             documents = [d for d in documents if matches_filters(d, client_filters)]
         if order_by or descending:
@@ -829,10 +867,38 @@ class FirestoreStore(Store):
         self,
         collection: str,
         server_filters: Mapping[str, Any],
-        order_by: str | None,
-        descending: bool,
     ) -> list[dict[str, Any]]:
-        """Page through ``runQuery`` until the collection is exhausted."""
+        """Read the documents matching ``server_filters``; never needs an index.
+
+        If Firestore still refuses the filtered query (a project whose indexes
+        are missing for any reason), fall back to scanning the collection and
+        filtering in Python rather than failing the request: a slow page beats a
+        broken one.
+        """
+        try:
+            return self._paged_query(collection, server_filters)
+        except StoreError as exc:
+            if not server_filters or not needs_an_index(str(exc)):
+                raise
+            log.warning(
+                "Firestore asked for a composite index on %s (%s); "
+                "scanning the collection instead",
+                collection,
+                str(exc)[:160],
+            )
+            return self._paged_query(collection, {})
+
+    def _paged_query(
+        self,
+        collection: str,
+        server_filters: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Page through ``runQuery`` with equality filters and no ordering.
+
+        No ``orderBy`` is ever sent. Ordering is applied by the caller, so a
+        single-field index is always enough and a composite index is never
+        required -- see ``list`` above for why that matters.
+        """
         structured: dict[str, Any] = {
             "from": [{"collectionId": f"{self.prefix}/{collection}" if self.prefix else collection}]
         }
@@ -854,25 +920,14 @@ class FirestoreStore(Store):
                 }
             }
 
-        # Order by the requested field, then by document name to make paging
-        # deterministic. Firestore appends __name__ itself when it is not
-        # given, and it appends it with the SAME direction as the last ordered
-        # field -- "ORDER BY a DESC becomes ORDER BY a DESC, __name__ DESC".
-        # Sending __name__ ASCENDING after a DESCENDING field therefore
-        # contradicts the primary direction and the request is rejected with
-        # "order by clause cannot contain more fields after the key". Every
-        # descending query (newest attendance first, newest anchor first) failed
-        # on Firestore for exactly this reason while the local JSON store, which
-        # sorts in Python, was unaffected.
-        order_field = str(order_by) if order_by else "__name__"
-        direction = "DESCENDING" if descending else "ASCENDING"
-        structured["orderBy"] = [{"field": {"fieldPath": order_field}, "direction": direction}]
-        if order_field != "__name__":
-            structured["orderBy"].append({"field": {"fieldPath": "__name__"}, "direction": direction})
-
         documents: list[dict[str, Any]] = []
+        seen: set[str] = set()
         offset = 0
-        while True:
+        # A paged read of an unordered query is stable because Firestore appends
+        # `__name__ ASC` to any query that does not order explicitly -- the one
+        # ordering guaranteed to have a single-field index. The page cap is
+        # belt-and-braces: no response can spin this loop forever.
+        for _ in range(MAX_PAGES):
             query = dict(structured)
             query["limit"] = PAGE_SIZE
             query["offset"] = offset
@@ -883,12 +938,19 @@ class FirestoreStore(Store):
                 if not isinstance(entry, dict):
                     continue
                 if "document" in entry:
-                    page.append(from_firestore_document(entry["document"]))
+                    document = from_firestore_document(entry["document"])
+                    key = str(entry["document"].get("name", "")) or str(id(document))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    page.append(document)
 
             documents.extend(page)
             if len(page) < PAGE_SIZE:
                 break
-            offset += PAGE_SIZE  # simple offset paging; datasets here are small
+            offset += PAGE_SIZE
+        else:  # pragma: no cover - only reachable against an unusual backend
+            log.warning("Stopped paging %s after %d pages", collection, MAX_PAGES)
 
         return documents
 

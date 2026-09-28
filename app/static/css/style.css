@@ -1,14 +1,14 @@
 /* ============================================================================
    BCOE Attendance Chain - design system
    ----------------------------------------------------------------------------
-   Visual language, borrowed from the "CyberRAG" document-intelligence look:
+   Visual language: a light, airy document-console look.
 
-     1. Air and light  - a near-white ground (#eef2f7), generous whitespace, and
+     1. Air and light  - a near-white ground (#f1f2f9), generous whitespace, and
                          white cards that lift off it on very soft blue-tinted
                          shadows. Nothing competes with the data.
-     2. Navy to teal   - one gradient carries every piece of emphasis: deep
-                         institutional navy (#123a63) into a teal-green
-                         (#1a7f7a). Used on hero panels, primary buttons, tiles.
+     2. Blue to violet - one gradient carries every piece of emphasis: a deep
+                         blue (#1e3a8a) through indigo (#4f46e5) into violet
+                         (#7c3aed). Hero panels, primary buttons, subject tiles.
      3. Quiet details  - 11px letter-spaced eyebrows, hairline borders, pill
                          buttons and a fine dotted grid that reads as texture
                          rather than decoration.
@@ -22,13 +22,13 @@
 /* ---------------------------------------------------------------- tokens --- */
 :root {
   /* Ground and surfaces */
-  --bg:            #eef2f7;
-  --bg-deep:       #e6ecf3;
+  --bg:            #f1f2f9;
+  --bg-deep:       #e6e8f3;
   --surface:       #ffffff;
   --surface-2:     #f8fafc;
-  --surface-3:     #eef2f7;
-  --hairline:      #dde5ee;
-  --hairline-soft: #e8eef5;
+  --surface-3:     #f1f2f9;
+  --hairline:      #dfe2ee;
+  --hairline-soft: #e9ecf5;
   --edge-light:    rgba(255, 255, 255, 0.9);
 
   /* Ink */
@@ -37,19 +37,20 @@
   --text-3:  #64748b;
   --text-4:  #94a3b8;
 
-  /* Brand: navy into teal, the one gradient in the system */
-  --brand:      #123a63;
-  --brand-2:    #1a7f7a;
-  --brand-3:    #2a9d8f;
-  --brand-ink:  #0b2a4a;
-  --brand-glow: rgba(18, 58, 99, 0.16);
-  --brand-grad: linear-gradient(120deg, #123a63 0%, #17566e 52%, #1a7f7a 100%);
-  --brand-grad-soft: linear-gradient(120deg, #eaf1f8 0%, #e6f2f1 100%);
+  /* Brand: deep blue into indigo into violet -- the one gradient in the
+     system, used for hero panels, primary buttons and subject tiles. */
+  --brand:      #1e3a8a;
+  --brand-2:    #4f46e5;
+  --brand-3:    #7c3aed;
+  --brand-ink:  #1e1b4b;
+  --brand-glow: rgba(30, 58, 138, 0.16);
+  --brand-grad: linear-gradient(120deg, #1e3a8a 0%, #4f46e5 52%, #7c3aed 100%);
+  --brand-grad-soft: linear-gradient(120deg, #e9eafa 0%, #f0eafd 100%);
 
-  /* Accent: the teal alone, for small emphasis */
-  --accent:     #0d9488;
-  --accent-2:   #14b8a6;
-  --accent-grad: linear-gradient(120deg, #0d9488 0%, #2a9d8f 100%);
+  /* Accent: the violet alone, for small emphasis */
+  --accent:     #7c3aed;
+  --accent-2:   #a78bfa;
+  --accent-grad: linear-gradient(120deg, #6d28d9 0%, #7c3aed 100%);
 
   /* Status */
   --ok:        #0f9d58;
@@ -58,7 +59,7 @@
   --warn-bg:   #fdf2e0;
   --danger:    #c2352b;
   --danger-bg: #fdeceb;
-  --info:      #1d6fa5;
+  --info:      #5b3df5;
   --info-bg:   #e8f2f9;
 
   /* Geometry */
@@ -97,7 +98,7 @@
           "Liberation Mono", monospace;
 }
 
-/* Dark: the same layout at night. Deeper navy ground, the teal carries more of
+/* Dark: the same layout at night. Deeper ground, the violet carries more of
    the emphasis because the navy gets lost against it. */
 [data-theme="dark"] {
   --bg:            #0b1220;
@@ -113,7 +114,7 @@
   --text-3: #8b9ab0;
   --text-4: #64748b;
   --brand-glow: rgba(42, 157, 143, 0.24);
-  --brand-grad: linear-gradient(120deg, #123a63 0%, #17566e 52%, #1e8b83 100%);
+  --brand-grad: linear-gradient(120deg, #1e3a8a 0%, #4f46e5 52%, #7c3aed 100%);
   --brand-grad-soft: linear-gradient(120deg, #16233a 0%, #163032 100%);
   --ok-bg:     rgba(15, 157, 88, 0.16);
   --warn-bg:   rgba(180, 83, 9, 0.18);
@@ -122,7 +123,7 @@
   --ok:     #34d399;
   --warn:   #fbbf24;
   --danger: #f87171;
-  --info:   #7dd3fc;
+  --info:   #a5b4fc;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.24);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.34), 0 14px 34px rgba(0, 0, 0, 0.34);
   --shadow-3: 0 24px 60px rgba(0, 0, 0, 0.5);
@@ -131,6 +132,12 @@
 
 /* ----------------------------------------------------------------- reset --- */
 *, *::before, *::after { box-sizing: border-box; }
+
+/* A `hidden` element must actually be hidden. `.now-playing` sets
+   `display: flex`, and a class rule beats the browser's built-in
+   `[hidden] { display: none }`, so the empty "Live lecture" card sat there on
+   every page with two dashes in it. */
+[hidden] { display: none !important; }
 
 html {
   -webkit-text-size-adjust: 100%;
@@ -198,8 +205,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(1200px 600px at 8% -8%, rgba(26, 127, 122, 0.10), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(18, 58, 99, 0.09), transparent 62%);
+    radial-gradient(1200px 600px at 8% -8%, rgba(124, 58, 237, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(30, 58, 138, 0.09), transparent 62%);
 }
 .aurora span { display: none; }
 .aurora::after {
@@ -208,7 +215,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   inset: 0;
   background-image: radial-gradient(currentColor 1px, transparent 1px);
   background-size: 26px 26px;
-  color: rgba(15, 23, 42, 0.07);
+  color: rgba(30, 58, 138, 0.07);
   mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 10%, transparent 72%);
   -webkit-mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 10%, transparent 72%);
 }
@@ -252,7 +259,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: grid; place-items: center;
   font-weight: 800; font-size: 11px; letter-spacing: 0.02em;
   color: #fff;
-  box-shadow: 0 6px 16px rgba(18, 58, 99, 0.22);
+  box-shadow: 0 6px 16px rgba(30, 58, 138, 0.22);
 }
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand-text strong { font-size: 14.5px; font-weight: 700; letter-spacing: -0.02em; }
@@ -299,7 +306,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: var(--brand-grad-soft);
   color: var(--brand-ink);
   font-weight: 650;
-  box-shadow: inset 0 0 0 1px rgba(26, 127, 122, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.16);
 }
 .nav-item.active .ico { color: var(--brand-2); }
 .nav-item .count {
@@ -410,7 +417,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .card.hoverable:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); }
 .card.pad-lg { padding: 30px; }
 .card.flat { box-shadow: none; }
-.card.tinted { background: var(--brand-grad-soft); border-color: rgba(26, 127, 122, 0.16); }
+.card.tinted { background: var(--brand-grad-soft); border-color: rgba(124, 58, 237, 0.16); }
 
 .card-head {
   display: flex;
@@ -491,9 +498,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: var(--brand-grad);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 6px 18px rgba(18, 58, 99, 0.26);
+  box-shadow: 0 6px 18px rgba(30, 58, 138, 0.26);
 }
-.btn-primary:hover { box-shadow: 0 10px 26px rgba(18, 58, 99, 0.32); border-color: transparent; }
+.btn-primary:hover { box-shadow: 0 10px 26px rgba(30, 58, 138, 0.32); border-color: transparent; }
 
 .btn-accent {
   background: var(--accent-grad);
@@ -573,7 +580,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .badge.ok     { background: var(--ok-bg);     color: var(--ok);     border-color: #c3e6d3; }
 .badge.warn   { background: var(--warn-bg);   color: var(--warn);   border-color: #f0d9b5; }
 .badge.danger { background: var(--danger-bg); color: var(--danger); border-color: #f3c9c6; }
-.badge.info   { background: var(--info-bg);   color: var(--info);   border-color: #c6dced; }
+.badge.info   { background: var(--info-bg);   color: var(--info);   border-color: #d6d4fb; }
 .badge.brand  { background: var(--brand-grad-soft); color: var(--brand-ink); border-color: rgba(26,127,122,.24); }
 .badge.dot::before {
   content: "";
@@ -690,7 +697,7 @@ input::placeholder, textarea::placeholder { color: var(--text-4); }
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--brand-2);
-  box-shadow: 0 0 0 3px rgba(26, 127, 122, 0.14);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.14);
 }
 textarea { min-height: 90px; resize: vertical; }
 select {
@@ -765,7 +772,7 @@ select {
   width: var(--pct, 0%);
   transition: width 1000ms var(--spring-soft);
 }
-.bar.ok > i { background: linear-gradient(90deg, #1a7f7a, #2a9d8f); }
+.bar.ok > i { background: linear-gradient(90deg, #7c3aed, #6d28d9); }
 .bar.warn > i { background: linear-gradient(90deg, #d97706, #f59e0b); }
 .bar.danger > i { background: linear-gradient(90deg, #dc2626, #ef4444); }
 
@@ -792,7 +799,7 @@ select {
    PAGE PATTERNS
    ========================================================================== */
 
-/* The hero: a navy-to-teal panel, exactly the reference's opening card. This is
+/* The hero: the one saturated panel, the app's opening card. This is
    the one place a saturated gradient is allowed. */
 .hero {
   position: relative;
@@ -801,7 +808,7 @@ select {
   padding: clamp(28px, 4vw, 52px);
   background: var(--brand-grad);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 48px rgba(18, 58, 99, 0.24);
+  box-shadow: 0 20px 48px rgba(30, 58, 138, 0.24);
   color: #fff;
 }
 .hero .eyebrow { color: rgba(255, 255, 255, 0.68); }
@@ -864,7 +871,7 @@ select {
   font-size: 18px;
   background: var(--brand-grad-soft);
   color: var(--brand-2);
-  border: 1px solid rgba(26, 127, 122, 0.16);
+  border: 1px solid rgba(124, 58, 237, 0.16);
 }
 
 /* Subject tiles: a gradient per subject, used as artwork. */
@@ -877,11 +884,11 @@ select {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 10px 26px rgba(18, 58, 99, 0.16);
+  box-shadow: 0 10px 26px rgba(30, 58, 138, 0.16);
   color: #fff;
   transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease);
 }
-.subject-tile:hover { transform: translateY(-4px); box-shadow: 0 18px 38px rgba(18, 58, 99, 0.24); }
+.subject-tile:hover { transform: translateY(-4px); box-shadow: 0 18px 38px rgba(30, 58, 138, 0.24); }
 .subject-tile .code {
   font-family: var(--mono);
   font-size: 11px;
@@ -977,10 +984,10 @@ kbd {
 .callout h4 { margin: 0 0 6px; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
 .callout p { margin: 0; font-size: 13px; color: var(--text-2); }
 .callout p + p { margin-top: 8px; }
-.callout.info { background: var(--info-bg); border-color: #c6dced; }
-.callout.info::before { background: linear-gradient(180deg, #1d6fa5, #2a9d8f); }
+.callout.info { background: var(--info-bg); border-color: #d6d4fb; }
+.callout.info::before { background: linear-gradient(180deg, #5b3df5, #6d28d9); }
 .callout.ok { background: var(--ok-bg); border-color: #c3e6d3; }
-.callout.ok::before { background: linear-gradient(180deg, #0f9d58, #2a9d8f); }
+.callout.ok::before { background: linear-gradient(180deg, #0f9d58, #6d28d9); }
 .callout.bad { background: var(--danger-bg); border-color: #f3c9c6; }
 .callout.bad::before { background: linear-gradient(180deg, #c2352b, #dc2626); }
 .callout.warn { background: var(--warn-bg); border-color: #f0d9b5; }
@@ -1101,11 +1108,11 @@ pre.code code { border: 0; background: none; padding: 0; color: inherit; }
   padding: 14px 16px;
   border-radius: var(--r-md);
   background: var(--brand-grad-soft);
-  border: 1px solid rgba(26, 127, 122, 0.2);
+  border: 1px solid rgba(124, 58, 237, 0.2);
 }
 .mining .spinner {
   width: 18px; height: 18px;
-  border: 2px solid rgba(26, 127, 122, 0.24);
+  border: 2px solid rgba(124, 58, 237, 0.24);
   border-top-color: var(--brand-2);
   flex: 0 0 18px;
   opacity: 1;
@@ -1295,7 +1302,7 @@ pre.code code { border: 0; background: none; padding: 0; color: inherit; }
   position: absolute;
   inset: 0 0 auto 0;
   height: 4px;
-  background: linear-gradient(90deg, #0f9d58, #2a9d8f);
+  background: linear-gradient(90deg, #0f9d58, #6d28d9);
 }
 .receipt.invalid::before { background: linear-gradient(90deg, #dc2626, #f97316); }
 .receipt .stamp {
@@ -1504,35 +1511,70 @@ html.js .reveal.in { opacity: 1; transform: none; }
   .grid.side { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 980px) {
-  :root { --gutter: 16px; }
+  /* One column, and the sidebar turns into a compact top bar: brand, theme
+     toggle, menu button. The nine navigation links drop into a panel that opens
+     under it, because nine links squeezed into one scrolling row on a phone is
+     a puzzle, not navigation. */
+  :root { --gutter: 14px; }
+  body { overflow-x: hidden; }
   .shell { grid-template-columns: minmax(0, 1fr); }
+
   .sidebar {
-    position: fixed;
-    inset: 0 0 auto 0;
+    position: sticky;
+    inset: auto;
+    top: 0;
+    z-index: 60;
     height: auto;
     flex-direction: row;
     align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
+    gap: 10px;
+    padding: 9px 14px;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
-    overflow-x: auto;
+    box-shadow: var(--shadow-1);
   }
-  .brand { border-bottom: 0; padding: 0 8px 0 0; flex: 0 0 auto; }
-  .brand-text { display: none; }
-  .nav { flex-direction: row; gap: 6px; overflow-x: auto; padding: 0; }
-  .nav-group { flex-direction: row; gap: 6px; }
-  .nav-label { display: none; }
-  .nav-item { padding: 8px 12px; white-space: nowrap; }
-  .nav-item .label-text { display: none; }
-  .now-playing, .sidebar-foot { display: none; }
-  .main { padding-top: 62px; }
-  .topbar { position: static; padding-top: 14px; }
+  .brand { flex: 1; min-width: 0; padding: 0; border-bottom: 0; }
+  .brand-text span { display: none; }
+  .sidebar-foot { border: 0; padding: 0; margin: 0; gap: 8px; }
+  .now-playing { display: none; }
+  .nav-toggle { display: grid; }
+
+  .nav {
+    display: none;
+    position: fixed;
+    inset: 56px 0 auto 0;
+    z-index: 59;
+    flex-direction: column;
+    gap: 16px;
+    max-height: calc(100vh - 56px);
+    overflow-y: auto;
+    padding: 16px 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: var(--shadow-3);
+    animation: rise 240ms var(--spring-soft) both;
+  }
+  body.nav-open .nav { display: flex; }
+  .nav-group { gap: 2px; }
+  .nav-label { display: block; }
+  .nav-item { padding: 11px 12px; font-size: 14.5px; white-space: normal; }
+  .nav-item .label-text { display: inline; }
+
+  .main { padding-top: 0; }
+  .topbar { position: static; padding: 18px var(--gutter) 12px; align-items: center; }
   .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: minmax(0, 1fr); }
   .span-2 { grid-column: auto; }
-  .miniplayer { top: 8px; flex-wrap: wrap; }
+  .miniplayer { top: 62px; }
   .hero { border-radius: var(--r-lg); }
+
+  /* Tables stay tables, but scroll sideways inside their card instead of
+     stretching the page. */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { font-size: 12.5px; }
+  thead th, td { padding: 9px 10px; white-space: nowrap; }
+  td.wrap, .table-wrap td:first-child { white-space: normal; }
 }
+
 @media (max-width: 620px) {
   h1 { font-size: 23px; }
   .card, .stat, .concept { padding: 16px; border-radius: var(--r-md); }
@@ -1562,7 +1604,7 @@ html.js .reveal.in { opacity: 1; transform: none; }
 /* ------------------------------------------------- dark-mode fixups -------- */
 /* A few components keep a literal light border because it reads best on the
    light ground; these are the dark equivalents. */
-[data-theme="dark"] .callout.info { border-color: rgba(125, 211, 252, 0.24); }
+[data-theme="dark"] .callout.info { border-color: rgba(165, 180, 252, 0.26); }
 [data-theme="dark"] .callout.ok   { border-color: rgba(52, 211, 153, 0.24); }
 [data-theme="dark"] .callout.bad  { border-color: rgba(248, 113, 113, 0.24); }
 [data-theme="dark"] .callout.warn { border-color: rgba(251, 191, 36, 0.24); }
@@ -1572,3 +1614,49 @@ html.js .reveal.in { opacity: 1; transform: none; }
 [data-theme="dark"] .block-card .hash { color: inherit; }
 [data-theme="dark"] .viewfinder { border-color: #23334f; }
 [data-theme="dark"] pre.code { background: #0a1120; border-color: #1b2a42; }
+
+
+/* ------------------------------------------------------------- mobile bar --- */
+/* Hidden on desktop; the phone layout shows it next to the brand. */
+.nav-toggle {
+  display: none;
+  place-items: center;
+  width: 38px; height: 38px;
+  flex: 0 0 38px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.nav-toggle:active { transform: scale(0.94); }
+body.nav-open .nav-toggle { background: var(--brand-grad-soft); color: var(--brand-2); }
+
+/* The theme button shows the icon of the theme it switches TO. */
+.theme-toggle .t-dark { display: none; }
+.theme-toggle .t-light { display: grid; place-items: center; }
+[data-theme="dark"] .theme-toggle .t-dark { display: grid; place-items: center; }
+[data-theme="dark"] .theme-toggle .t-light { display: none; }
+
+/* Inline SVG icons are sized by CSS so a `<svg class="ico">` aligns with text
+   the same way the old glyph spans did. */
+svg.ico { width: 17px; height: 17px; flex: 0 0 auto; }
+.btn svg.ico { width: 15px; height: 15px; }
+.card-title svg.ico { width: 16px; height: 16px; }
+.nav-item svg.ico { width: 18px; height: 18px; }
+svg.glyph { width: 30px; height: 30px; opacity: 0.45; }
+.empty svg.glyph { animation: float 5s var(--ease) infinite; }
+svg.ico + .label-text, svg.ico + span { margin-left: 0; }
+
+/* The "Show all 120 rows" button that sits under a collapsed table. */
+.table-more td {
+  padding: 12px !important;
+  text-align: center;
+  border-bottom: 0 !important;
+  background: var(--surface-2);
+}
+.table-more .btn { font-variant-numeric: tabular-nums; }
+
+/* Empty-state and success glyphs wrap an icon at display size. */
+.glyph svg.ico { width: 28px; height: 28px; }
+.empty .glyph svg.ico { opacity: 0.5; }

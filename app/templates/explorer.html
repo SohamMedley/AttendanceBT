@@ -89,7 +89,7 @@
   {# -------------------------------- GENESIS ------------------------------- #}
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9679;</span> Genesis block</div>
+      <div class="card-title">{{ icon('dot') }} Genesis block</div>
       <span class="badge brand">root of trust</span>
     </div>
     <dl class="dl">
@@ -130,13 +130,13 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9939;</span> Blocks</div>
+      <div class="card-title">{{ icon('link') }} Blocks</div>
       <div class="card-sub">Newest first. One sealed lecture is one block.</div>
     </div>
     <span class="badge">{{ blocks | length }} shown</span>
   </div>
   <div class="table-wrap">
-    <table>
+    <table data-collapse="20">
       <thead>
         <tr>
           <th class="num">#</th><th>Sealed</th><th class="num">Txns</th>

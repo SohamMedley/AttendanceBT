@@ -16,7 +16,7 @@
     <div class="card-head" style="justify-content:center;">
       <div>
         <div class="card-title" style="justify-content:center;">
-          <span class="ico">&#9635;</span> Scan to mark attendance
+          {{ icon('qr') }} Scan to mark attendance
         </div>
         <div class="card-sub">One code per time slot. It expires by itself.</div>
       </div>
@@ -73,7 +73,7 @@
 
     <section class="card reveal">
       <div class="card-head">
-        <div class="card-title"><span class="ico">&#9636;</span> Marked so far</div>
+        <div class="card-title">{{ icon('layout') }} Marked so far</div>
         <span class="badge">
           <span id="marked-count">0</span> / <span id="expected-count">0</span> students</span>
       </div>
@@ -89,12 +89,12 @@
 
     <section class="card reveal">
       <div class="card-head">
-        <div class="card-title"><span class="ico">&#9776;</span> Live feed</div>
+        <div class="card-title">{{ icon('list') }} Live feed</div>
         <span class="badge ok dot">auto-refresh</span>
       </div>
       <div class="feed" id="feed">
         <div class="empty">
-          <div class="glyph">&#9635;</div>
+          <div class="glyph">{{ icon('qr') }}</div>
           <div>Waiting for students to scan&hellip;</div>
         </div>
       </div>
@@ -106,7 +106,7 @@
   <section class="card reveal">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9744;</span> Not yet marked</div>
+        <div class="card-title">{{ icon('inbox') }} Not yet marked</div>
         <div class="card-sub" id="absent-hint">&mdash;</div>
       </div>
     </div>
@@ -118,7 +118,7 @@
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9998;</span> Manual override</div>
+        <div class="card-title">{{ icon('edit') }} Manual override</div>
         <div class="card-sub">For a student whose phone died.</div>
       </div>
     </div>
@@ -243,7 +243,7 @@ async function refreshLive() {
               </span>
               <span class="badge ${statusClass(record.status)}">${escapeHtml(record.status)}</span>
             </div>`).join("")
-        : '<div class="empty"><div class="glyph">&#9635;</div><div>Waiting for students to scan&hellip;</div></div>';
+        : '<div class="empty"><div class="glyph">{{ icon('qr') }}</div><div>Waiting for students to scan&hellip;</div></div>';
       initAvatars(feed);
     }
 
@@ -258,7 +258,7 @@ async function refreshLive() {
               <span class="meta mono">${escapeHtml(student.roll_no)}</span>
             </span>
           </div>`).join("")
-      : '<div class="empty"><div class="glyph">&#10003;</div><div>Everyone has been marked.</div></div>';
+      : '<div class="empty"><div class="glyph">{{ icon('check') }}</div><div>Everyone has been marked.</div></div>';
     initAvatars(absentees);
   } catch (error) {
     console.warn(error.message);

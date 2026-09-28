@@ -20,18 +20,18 @@
     <section class="card reveal" style="--i:1;">
       <div class="card-head">
         <div>
-          <div class="card-title"><span class="ico">&#9889;</span> Populate the register</div>
+          <div class="card-title">{{ icon('zap') }} Populate the register</div>
           <div class="card-sub">One click. Runs in a few seconds.</div>
         </div>
         <span class="badge brand">one click</span>
       </div>
 
       <div class="tick-list" style="margin-bottom:18px;">
-        <div class="tick"><span class="m">&#10003;</span> {{ college.department }} students across divisions</div>
-        <div class="tick"><span class="m">&#10003;</span> Six faculty members with real subject allocation</div>
-        <div class="tick"><span class="m">&#10003;</span> University of Mumbai subjects, real course codes</div>
-        <div class="tick"><span class="m">&#10003;</span> A unique secp256k1 key pair for every person</div>
-        <div class="tick"><span class="m">&#10003;</span> The genesis block, sealed with proof of work</div>
+        <div class="tick"><span class="m">{{ icon('check') }}</span> {{ college.department }} students across divisions</div>
+        <div class="tick"><span class="m">{{ icon('check') }}</span> Six faculty members with real subject allocation</div>
+        <div class="tick"><span class="m">{{ icon('check') }}</span> University of Mumbai subjects, real course codes</div>
+        <div class="tick"><span class="m">{{ icon('check') }}</span> A unique secp256k1 key pair for every person</div>
+        <div class="tick"><span class="m">{{ icon('check') }}</span> The genesis block, sealed with proof of work</div>
       </div>
 
       <button class="btn btn-primary btn-block btn-lg" id="seed-btn" type="button">
@@ -42,7 +42,7 @@
 
     <section class="card reveal" style="--i:2;">
       <div class="card-head">
-        <div class="card-title"><span class="ico">&#9638;</span> Current state</div>
+        <div class="card-title">{{ icon('grid') }} Current state</div>
       </div>
       <div class="grid cols-3" style="gap:12px;">
         <div class="stat">
@@ -60,7 +60,7 @@
       </div>
 
       <hr class="divider">
-      <div class="card-title" style="margin-bottom:10px;"><span class="ico">&#9002;</span> Prefer the terminal?</div>
+      <div class="card-title" style="margin-bottom:10px;">{{ icon('terminal') }} Prefer the terminal?</div>
       <pre class="code">python manage.py seed            <span class="c"># register + keys</span>
 python manage.py demo --weeks 6  <span class="c"># six weeks of history</span>
 python manage.py serve           <span class="c"># start the app</span></pre>
@@ -80,7 +80,7 @@ document.getElementById("seed-btn").addEventListener("click", async (event) => {
     const data = await api("/api/system/seed", { method: "POST", body: {} });
     target.innerHTML = `
       <div class="callout ok">
-        <h4>&#10003; Register created</h4>
+        <h4>{{ icon('check') }} Register created</h4>
         <p>${thousands(data.students)} students, ${data.faculty} faculty, ${data.subjects}
            subjects and ${thousands(data.keys_created)} new key pairs.</p>
       </div>`;

@@ -199,48 +199,143 @@ class TestStorage:
 # Key custody
 # ---------------------------------------------------------------------------
 class TestFirestoreQueryShape:
-    """The structured query we send must be one Firestore accepts.
+    """Every query the app sends must be servable by Firestore's own indexes.
 
-    This is the bug that only appeared on a real deployment: the local JSON
-    store sorts in Python, so a malformed Firestore query is invisible until the
-    app runs against the cloud. Every descending list (newest attendance, newest
-    anchor) returned HTTP 500 on Render while everything passed locally.
+    This is the bug that only appeared on a real deployment, and it appeared on
+    *every* page at once. The queries combined an equality filter with an
+    ``orderBy`` on a different field. Firestore has no automatic index for that
+    combination -- it needs a composite index, created by hand in the Firebase
+    console -- so it answered HTTP 400 FAILED_PRECONDITION, "The query requires
+    an index", and the overview, students, explorer and audit pages all died
+    together. The local JSON store sorts in Python, so nothing was wrong
+    locally: it could only fail against the cloud.
+
+    The rule these tests pin down: send equality filters (single-field indexes
+    cover those), never send an ``orderBy``, and order here in Python.
     """
 
     @staticmethod
-    def _build(**kwargs):
+    def _store(handler=None):
         from app.storage import FirestoreStore
 
-        store = FirestoreStore.__new__(FirestoreStore)      # no constructor: no network
+        store = FirestoreStore.__new__(FirestoreStore)   # no constructor: no network
         store.prefix = ""
         store.base_url = "https://firestore.googleapis.com/v1/projects/demo/databases/(default)/documents"
-        captured = {}
+        store.queries = []
 
         def fake_request(method, path, payload=None, **rest):
-            captured["query"] = payload["structuredQuery"]
-            return []                                       # an empty page ends paging
+            query = payload["structuredQuery"]
+            store.queries.append(query)
+            return handler(query) if handler else []
 
         store._request = fake_request
-        store._run_query("attendance", {}, kwargs.get("order_by"), kwargs.get("descending", False))
-        return captured["query"]
+        return store
 
-    def test_descending_order_uses_a_matching_tiebreaker(self):
-        """ORDER BY a DESC must become a DESC, __name__ DESC -- never __name__ ASC."""
-        query = self._build(order_by="marked_at", descending=True)
-        assert query["orderBy"] == [
-            {"field": {"fieldPath": "marked_at"}, "direction": "DESCENDING"},
-            {"field": {"fieldPath": "__name__"}, "direction": "DESCENDING"},
+    @staticmethod
+    def _page(store, documents):
+        """Serve ``documents`` from a fake collection, with real encoding."""
+        from app.storage import to_firestore_document
+
+        def handler(query):
+            offset = query.get("offset", 0)
+            return [
+                {"document": {"name": f"{store.base_url}/attendance/doc{i}", **to_firestore_document(doc)}}
+                for i, doc in enumerate(documents[offset:])
+            ]
+
+        return handler
+
+    def test_no_query_ever_asks_for_an_order(self):
+        """An orderBy is what forced the composite index. There must be none."""
+        store = self._store()
+        store.list("attendance", {"session_id": "LEC-1"}, order_by="marked_at", descending=True)
+        assert all("orderBy" not in query for query in store.queries)
+
+    def test_ordering_happens_in_python_instead(self):
+        store = self._store()
+        documents = [
+            {"session_id": "LEC-1", "marked_at": 30, "roll_no": "B"},
+            {"session_id": "LEC-1", "marked_at": 10, "roll_no": "A"},
+            {"session_id": "LEC-1", "marked_at": 20, "roll_no": "C"},
+        ]
+        store._request = lambda *a, **k: self._page(store, documents)(a[2]["structuredQuery"])
+
+        newest = store.list("attendance", {}, order_by="marked_at", descending=True)
+        assert [d["marked_at"] for d in newest] == [30, 20, 10]
+
+        oldest = store.list("attendance", {}, order_by="marked_at")
+        assert [d["marked_at"] for d in oldest] == [10, 20, 30]
+
+    def test_a_filter_becomes_a_single_field_equality_query(self):
+        """Equality filters are covered by Firestore's automatic indexes."""
+        store = self._store()
+        store.list("attendance", {"session_id": "LEC-1", "status": "PRESENT"})
+
+        where = store.queries[0]["where"]["compositeFilter"]
+        assert where["op"] == "AND"
+        assert [f["fieldFilter"]["field"]["fieldPath"] for f in where["filters"]] == [
+            "session_id",
+            "status",
         ]
 
-    def test_ascending_order_uses_an_ascending_tiebreaker(self):
-        query = self._build(order_by="faculty_id")
-        assert [o["direction"] for o in query["orderBy"]] == ["ASCENDING", "ASCENDING"]
+    def test_a_query_that_needs_an_index_falls_back_to_a_scan(self):
+        """If Firestore still refuses the filtered query, read the collection.
 
-    def test_an_unordered_list_orders_by_name_only(self):
-        query = self._build()
-        assert query["orderBy"] == [
-            {"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}
+        A slow page beats a broken one, and the caller re-applies the filters.
+        """
+        from app.storage import StoreError
+
+        def handler(query):
+            if "where" in query:
+                raise StoreError(
+                    "Firestore POST runQuery failed (400): {\"error\": {\"code\": 400, "
+                    "\"status\": \"FAILED_PRECONDITION\", \"message\": \"The query requires "
+                    "an index. You can create it here: https://console.firebase.google.com/\"}}"
+                )
+            return [
+                {
+                    "document": {
+                        "name": f"{self_store.base_url}/attendance/doc{i}",
+                        **to_firestore_document(doc),
+                    }
+                }
+                for i, doc in enumerate(self_documents)
+            ]
+
+        from app.storage import to_firestore_document
+
+        self_documents = [
+            {"session_id": "LEC-1", "status": "PRESENT"},
+            {"session_id": "LEC-2", "status": "PRESENT"},
         ]
+        self_store = self._store(handler)
+        rows = self_store.list("attendance", {"session_id": "LEC-1"})
+
+        assert len(self_store.queries) == 2           # the filtered one, then the scan
+        assert "where" not in self_store.queries[1]
+        assert [r["session_id"] for r in rows] == ["LEC-1"]
+
+    def test_an_unrelated_failure_is_not_swallowed(self):
+        """Only the missing-index rejection triggers the scan."""
+        import pytest
+
+        from app.storage import StoreError
+
+        def handler(query):
+            raise StoreError("Firestore POST runQuery failed (500): internal error")
+
+        store = self._store(handler)
+        with pytest.raises(StoreError):
+            store.list("attendance", {"session_id": "LEC-1"})
+
+    def test_the_index_hint_is_recognised_in_its_several_wordings(self):
+        from app.storage import needs_an_index
+
+        assert needs_an_index("The query requires an index. You can create it here: ...")
+        assert needs_an_index("status: FAILED_PRECONDITION")
+        assert needs_an_index("create_composite=abc at https://console.firebase.google.com/v1/...")
+        assert not needs_an_index("Firestore POST runQuery failed (500): internal error")
+        assert not needs_an_index("Cannot reach Firestore: timed out")
 
 
 class TestIdentity:

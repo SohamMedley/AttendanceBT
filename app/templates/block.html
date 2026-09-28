@@ -44,7 +44,7 @@
 <div class="grid side">
   <section class="card reveal">
     <div class="card-head">
-      <div class="card-title"><span class="ico">&#9636;</span> Block header</div>
+      <div class="card-title">{{ icon('layout') }} Block header</div>
       <span class="badge brand mono">#{{ block.index }}</span>
     </div>
     <dl class="dl">
@@ -78,7 +78,7 @@
   <section class="card reveal" style="--i:1;">
     <div class="card-head">
       <div>
-        <div class="card-title"><span class="ico">&#9939;</span> Merkle tree</div>
+        <div class="card-title">{{ icon('link') }} Merkle tree</div>
         <div class="card-sub">One root commits to every record below it.</div>
       </div>
     </div>
@@ -113,7 +113,7 @@
 <section class="card reveal">
   <div class="card-head">
     <div>
-      <div class="card-title"><span class="ico">&#9776;</span> Transactions in this block</div>
+      <div class="card-title">{{ icon('list') }} Transactions in this block</div>
       <div class="card-sub">{{ block.tx_count }} attendance record(s) sealed together.</div>
     </div>
   </div>
@@ -149,7 +149,7 @@
         {% if not block.transactions %}
         <tr><td colspan="7">
           <div class="empty">
-            <div class="glyph">&#9744;</div>
+            <div class="glyph">{{ icon('inbox') }}</div>
             <div>No transactions in this block.</div>
           </div>
         </td></tr>

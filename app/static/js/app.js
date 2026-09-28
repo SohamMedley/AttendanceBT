@@ -341,8 +341,9 @@ const THEME_KEY = "bcoe.attendance.theme";
 
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
+  // The button carries both icons and CSS shows whichever one offers the other
+  // theme; JS only keeps the label truthful for screen readers.
   $$(".theme-toggle").forEach((btn) => {
-    btn.textContent = theme === "light" ? "\u263e" : "\u2600";   // moon offers dark
     btn.setAttribute("aria-label", theme === "light" ? "Switch to dark theme" : "Switch to light theme");
   });
 }
@@ -357,6 +358,107 @@ function initTheme() {
     const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
     applyTheme(next);
+  });
+}
+
+/* ---------------------------------------------------------- long tables --- */
+/*
+ * A register of 120 students, or an audit trail of 2,900 entries, is a wall of
+ * rows: it buries everything else on the page and gives a phone real work to
+ * lay out. A table marked `data-collapse="12"` renders its first twelve rows
+ * and keeps a "Show all" button underneath. The search box, where a page has
+ * one, searches every row and overrides the collapse while a term is typed.
+ */
+function collapseTable(table) {
+  const limit = parseInt(table.dataset.collapse, 10) || 12;
+  const body = table.tBodies[0];
+  if (!body) return null;
+
+  // A row that exists only to carry an "empty" message is not a data row.
+  const rows = Array.from(body.rows).filter((row) => !row.querySelector("td[colspan]"));
+  const columns = table.tHead ? table.tHead.rows[0].cells.length : 1;
+  if (rows.length <= limit) return null;
+
+  const state = { rows, limit, open: false, query: "" };
+
+  const footer = document.createElement("tr");
+  footer.className = "table-more";
+  const cell = document.createElement("td");
+  cell.colSpan = columns;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn btn-sm btn-ghost";
+  button.textContent = `Show all ${rows.length} rows`;
+  cell.appendChild(button);
+  footer.appendChild(cell);
+  body.appendChild(footer);
+
+  state.apply = () => {
+    const term = state.query.trim().toLowerCase();
+    let visible = 0;
+    rows.forEach((row, index) => {
+      const haystack = (row.dataset.search || row.textContent || "").toLowerCase();
+      const matches = !term || haystack.includes(term);
+      const withinLimit = state.open || index < state.limit;
+      row.hidden = !(matches && (term ? true : withinLimit));
+      if (!row.hidden) visible += 1;
+    });
+    footer.hidden = Boolean(term) || visible === 0;
+    return visible;
+  };
+
+  button.addEventListener("click", () => {
+    state.open = !state.open;
+    button.textContent = state.open ? "Show fewer" : `Show all ${rows.length} rows`;
+    state.apply();
+  });
+
+  table.bcoeCollapse = state;
+  state.apply();
+  return state;
+}
+
+function initLongTables() {
+  $$("table[data-collapse]").forEach(collapseTable);
+}
+
+/** Search a collapsible table; returns how many of its rows are visible. */
+function filterTable(selector, term) {
+  const table = $(selector);
+  if (!table || !table.bcoeCollapse) return 0;
+  table.bcoeCollapse.query = term || "";
+  return table.bcoeCollapse.apply();
+}
+
+window.filterTable = filterTable;
+
+/* ------------------------------------------------------------- phone nav --- */
+/*
+ * On a phone the nine navigation links cannot live in one row, so the bar keeps
+ * a Menu button and the links unfold underneath it. Clicking a link, pressing
+ * Escape, or resizing back to a desktop width closes the panel again.
+ */
+function initNavToggle() {
+  const button = $("[data-nav-toggle]");
+  const nav = $("#main-nav");
+  if (!button || !nav) return;
+
+  const setOpen = (open) => {
+    document.body.classList.toggle("nav-open", open);
+    button.setAttribute("aria-expanded", String(open));
+  };
+
+  button.addEventListener("click", () => {
+    setOpen(!document.body.classList.contains("nav-open"));
+  });
+  nav.addEventListener("click", (event) => {
+    if (event.target.closest("a")) setOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setOpen(false);
+  });
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 980) setOpen(false);
   });
 }
 
@@ -506,12 +608,11 @@ const Secp256k1 = (() => {
 
 window.Secp256k1 = Secp256k1;
 
-
-window.Secp256k1 = Secp256k1;
-
 /* ------------------------------------------------- shared initialisation --- */
 function initPage() {
   initTheme();
+  initNavToggle();
+  initLongTables();
   initAvatars();
   initReveal();
   initMeters();
