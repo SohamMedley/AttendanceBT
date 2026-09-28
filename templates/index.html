@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BlockAttend / Cryptographic Presence Protocol</title>
+  
+  <!-- Modern Clean Monospace & Grotesk Typefaces -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Lightweight QR generator & scanner -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    :root {
+      --bg: #090b0e;
+      --surface: #12151b;
+      --surface-border: rgba(255, 255, 255, 0.08);
+      --surface-hover: #181c24;
+      --text-main: #f1f5f9;
+      --text-muted: #64748b;
+      --accent-mint: #10b981;
+      --accent-mint-soft: rgba(16, 185, 129, 0.12);
+      --accent-amber: #f59e0b;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      --ease-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    header {
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-mint);
+      box-shadow: 0 0 10px var(--accent-mint);
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    main {
+      padding: 2rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 992px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      padding: 1.75rem;
+      position: relative;
+    }
+
+    .card-title {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* QR Display Panel */
+    .qr-container {
+      background: #ffffff;
+      padding: 1.25rem;
+      border-radius: 8px;
+      width: 250px;
+      height: 250px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.25s var(--ease-snappy), opacity 0.25s ease;
+    }
+    .qr-container.refreshing {
+      transform: scale(0.95);
+      opacity: 0.4;
+    }
+
+    .epoch-bar {
+      margin-top: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .progress-track {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent-amber);
+      transition: width 1s linear;
+    }
+
+    /* Ledger & Realtime Logs */
+    .table-wrapper {
+      margin-top: 1rem;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    th {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--surface-border);
+    }
+    td {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .hash-text {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      background: var(--accent-mint-soft);
+      color: var(--accent-mint);
+    }
+
+    /* Actions */
+    .btn {
+      background: var(--text-main);
+      color: var(--bg);
+      border: none;
+      padding: 0.65rem 1.25rem;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="status-dot"></div>
+      <span>PROVEX // DECENTRALIZED ATTENDANCE LEDGER</span>
+    </div>
+    <button class="btn" onclick="mineBlock()">Seal & Mine Block</button>
+  </header>
+
+  <main>
+    <!-- Left Column: Dynamic QR Epoch -->
+    <section class="card">
+      <div class="card-title">
+        <span>DYNAMIC ROTATING TOKEN</span>
+        <span id="epoch-counter" style="color: var(--accent-amber); font-family: var(--font-mono);">--s</span>
+      </div>
+
+      <div class="qr-container" id="qr-box"></div>
+
+      <div class="epoch-bar">
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-bar" style="width: 100%;"></div>
+        </div>
+        <div style="display:flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">
+          <span>TOKEN HASH</span>
+          <span id="token-label">INITIALIZING...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Cryptographic Ledger -->
+    <section class="card">
+      <div class="card-title">
+        <span>BLOCKCHAIN LEDGER BLOCKS</span>
+        <span id="block-height" class="badge">BLOCK #0</span>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>BLOCK</th>
+              <th>PREVIOUS HASH</th>
+              <th>MERKLE ROOT / TX COUNT</th>
+              <th>MINED AT</th>
+            </tr>
+          </thead>
+          <tbody id="ledger-body">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let qrcode = new QRCode(document.getElementById("qr-box"), {
+      width: 210,
+      height: 210,
+      colorDark: "#090b0e",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+
+    let currentToken = "";
+
+    async function fetchEpoch() {
+      try {
+        const res = await fetch('/api/qr-epoch');
+        const data = await res.json();
+        
+        if (data.token !== currentToken) {
+          const qrBox = document.getElementById('qr-box');
+          qrBox.classList.add('refreshing');
+          
+          setTimeout(() => {
+            currentToken = data.token;
+            qrcode.clear();
+            qrcode.makeCode(currentToken);
+            document.getElementById('token-label').innerText = currentToken;
+            qrBox.classList.remove('refreshing');
+          }, 200);
+        }
+
+        document.getElementById('epoch-counter').innerText = `${data.ttl_seconds}s`;
+        const percent = (data.ttl_seconds / 15) * 100;
+        document.getElementById('progress-bar').style.width = `${percent}%`;
+
+      } catch (err) {
+        console.error("Epoch fetch failed:", err);
+      }
+    }
+
+    async function fetchLedger() {
+      try {
+        const res = await fetch('/api/ledger');
+        const data = await res.json();
+        
+        const tbody = document.getElementById('ledger-body');
+        tbody.innerHTML = '';
+        
+        document.getElementById('block-height').innerText = `BLOCK #${data.chain.length - 1}`;
+
+        data.chain.slice().reverse().forEach(block => {
+          const tr = document.createElement('tr');
+          const timeFormatted = new Date(block.timestamp * 1000).toLocaleTimeString();
+          tr.innerHTML = `
+            <td><span class="badge">#${block.index}</span></td>
+            <td class="hash-text">${block.previous_hash.substring(0, 14)}...</td>
+            <td>${block.transactions.length} verified records</td>
+            <td class="hash-text">${timeFormatted}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error("Ledger fetch failed:", err);
+      }
+    }
+
+    async function mineBlock() {
+      const res = await fetch('/api/mine', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        fetchLedger();
+      } else {
+        alert(data.message);
+      }
+    }
+
+    setInterval(fetchEpoch, 1000);
+    setInterval(fetchLedger, 5000);
+    fetchEpoch();
+    fetchLedger();
+  </script>
+</body>
+</html>
