@@ -204,6 +204,36 @@ class TestIdentity:
         second = services.keystore.get("BCOE23AI001")
         assert first.public_key == second.public_key
 
+    def test_a_malformed_service_account_degrades_instead_of_crashing(
+        self, tmp_path, monkeypatch
+    ):
+        """A broken FIREBASE_SERVICE_ACCOUNT must fall back, never fail to boot.
+
+        This is the failure a deploy actually meets: the variable exists but is
+        not valid JSON (a truncated paste, or the wrong value pasted entirely).
+        `build_store` used to catch a hand-picked list of exception types that
+        did not include JWTError, so the whole application failed to start
+        instead of quietly running on the local store -- the exact opposite of
+        what the fallback is for.
+        """
+        from app.config import AppConfig
+        from app.storage import build_store
+
+        monkeypatch.setenv("FIREBASE_PROJECT_ID", "test-project")
+        monkeypatch.setenv("FIREBASE_SERVICE_ACCOUNT", "arena/branch-name-not-json")
+
+        cfg = AppConfig()
+        cfg.storage.backend = "auto"
+        cfg.storage.firebase_project_id = "test-project"
+        cfg.storage.firebase_service_account = ""      # no file, inline value only
+        cfg.storage.local_path = str(tmp_path / "fallback.json")
+
+        store, report = build_store(cfg)
+
+        assert store.name == "local-json"              # it started anyway
+        assert report["fallback"] is True
+        assert any("not valid JSON" in note for note in report["notes"])
+
     def test_keys_survive_a_wiped_filesystem(self, config, tmp_path):
         """The keystore mirrors itself into a non-local store.
 

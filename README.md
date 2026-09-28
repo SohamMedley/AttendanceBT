@@ -452,6 +452,12 @@ not include disks, so this is shown commented out at the bottom of `render.yaml`
   30–60 seconds to wake. Open the URL before you present.
 * **`QR_TOKEN_TTL`.** The rotating QR is the security mechanism. Leave it at 30 s; a
   longer window makes screenshots worth forwarding.
+* **A bad `FIREBASE_SERVICE_ACCOUNT` no longer stops the app.** If the value is not
+  valid JSON (a truncated paste, or the wrong value pasted entirely, which is easy to do
+  with a 2,300-character string), the app logs
+  `Firestore unavailable: FIREBASE_SERVICE_ACCOUNT is not valid JSON`, falls back to the
+  local store, and starts normally. The Settings page shows the same message. Check the
+  logs for `storage=firestore` if you want to be certain it connected.
 * **HTTPS is required for the phone camera.** Render serves HTTPS by default, so the
   scanner on `/scan` works — it will not on a plain-HTTP self-hosted instance.
 

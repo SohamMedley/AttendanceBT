@@ -1267,7 +1267,15 @@ def build_store(config) -> tuple[Store, dict[str, Any]]:
                     }
                 )
                 return store, report
-            except (StoreError, OSError, ValueError, ImportError) as exc:
+            except Exception as exc:
+                # Deliberately broad. Choosing a storage backend must never be
+                # able to stop the application from starting, and the failure
+                # modes here are wide: a malformed service-account variable
+                # (JWTError), an expired key, DNS failure, a disabled Firestore
+                # API, a 403 from a wrong project. Naming the types meant one of
+                # them -- JWTError, raised when the credentials simply are not
+                # valid JSON -- crashed the app on boot instead of degrading,
+                # which is precisely what this fallback exists to prevent.
                 report["notes"].append(f"Firestore unavailable: {exc}")
                 if requested == "firestore":
                     report["notes"].append(
