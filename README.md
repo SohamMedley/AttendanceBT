@@ -27,7 +27,7 @@ detectable.
 ## Quick start
 
 ```bash
-# 1. Install the three dependencies (Flask, qrcode, pytest)
+# 1. Install the dependencies (Flask, qrcode, gunicorn, pytest)
 pip install -r requirements.txt
 
 # 2. Verify the cryptography against published test vectors (no data needed)
@@ -91,7 +91,7 @@ not estimated. They are worth quoting in a viva.
 | College-wide turnout | **74.66%** of the 3,840 possible marks |
 | Students below 75% | **26** of 120, worst at 37.5% |
 | Anomalies detected | **191** alerts (shared device, overlap, burst) |
-| Test suite | **243 passing** tests in ~55 s |
+| Test suite | **244 passing** tests in ~61 s |
 | Ledger file size | 6.0 MB for six weeks of a 120-student college |
 
 **The four tamper levels**, on the real chain:
@@ -182,56 +182,55 @@ than the honest network — the exact guarantee Proof-of-Work provides.
 
 ## Project structure
 
+The project deliberately uses **few, substantial files** rather than many small ones.
+Each file below is a complete layer, grouped so that related code sits together and a
+reader can follow one concern from top to bottom without jumping between directories.
+
 ```
 AttendanceBT/
 ├── manage.py                    CLI: seed, demo, serve, verify, tamper, anchor, self-test
 ├── run.py                       Minimal entry point (python run.py)
 ├── config.json                  College metadata, chain and policy parameters
 ├── .env.example                 Every option, documented (Firestore, anchoring, limits)
+├── render.yaml                  Render Blueprint (one-click deploy)
+├── Procfile                     Same start command for other PaaS hosts
 │
-├── app/
+├── app/                         13 modules + two small packages
 │   ├── __init__.py              Flask application factory
-│   ├── config.py                Configuration with env → file → default precedence
-│   ├── seed.py                  BCOE register data (real MU subject codes)
-│   ├── demo.py                  Six-week realistic history generator
+│   ├── config.py                Configuration, env → file → default precedence, .env loader
+│   ├── storage.py               Persistence: interface, local JSON store, Firestore
+│   │                            over REST, pure-Python RS256 JWT signer
+│   ├── services.py              Identity + key custody, rotating QR tokens, the
+│   │                            repository queries, analytics, anomaly detectors
+│   ├── ledger.py                Session lifecycle, marking, anti-fraud, verification,
+│   │                            the Services facade, anchor orchestration
+│   ├── anchoring.py             Four providers: auto, OpenTimestamps, Ethereum, simulated
+│   ├── seed.py                  BCOE register (real MU subject codes) + six-week
+│   │                            history generator
 │   │
-│   ├── blockchain/              ── the blockchain, from scratch ──
-│   │   ├── ecdsa.py             secp256k1 curve, ECDSA, RFC 6979, Base58Check addresses
-│   │   ├── keccak.py            Keccak-256 (Ethereum's hash, not NIST SHA3)
-│   │   ├── merkle.py            Merkle tree, inclusion proofs
-│   │   ├── transaction.py       Content-addressed signed transactions
-│   │   ├── block.py             Block header, hashing, sealing
-│   │   ├── proof_of_work.py     Mining, difficulty targets, retargeting
-│   │   └── chain.py             The chain, validation, 4-level tamper demo
+│   ├── blockchain/              ── the chain, written from scratch ──
+│   │   ├── crypto.py            Keccak-256, secp256k1 + ECDSA (RFC 6979), Merkle trees,
+│   │   │                        Base58Check addresses
+│   │   └── chain.py             Transactions, blocks, Proof-of-Work, chain validation,
+│   │                            the four-level tamper demo
 │   │
-│   ├── storage/                 ── persistence ──
-│   │   ├── base.py              Document-store interface + filter grammar
-│   │   ├── local_store.py       Atomic JSON file store (offline default)
-│   │   ├── firestore_store.py   Google Firestore over REST
-│   │   └── _rs256.py            Pure-Python RS256 JWT signer (no google-auth needed)
+│   ├── api/                     Three blueprints, split by audience:
+│   │   ├── pages.py             Server-rendered pages
+│   │   ├── attendance.py        Lecturers and students in a live lecture
+│   │   └── chain.py             Ledger reporting, anchoring and system endpoints
 │   │
-│   ├── services/                ── business logic ──
-│   │   ├── identity.py          Key custody, custodial vs non-custodial
-│   │   ├── qr.py                Rotating signed QR tokens + SVG rendering
-│   │   ├── ledger.py            Session lifecycle, marking, anti-fraud, verification
-│   │   ├── repository.py        Domain queries over the store
-│   │   ├── analytics.py         75% rule, defaulter lists, dashboard
-│   │   ├── anomaly.py           Fraud detectors (transparent rules)
-│   │   └── anchoring.py         Anchor creation and verification
-│   │
-│   ├── anchoring/
-│   │   ├── auto.py              Try a real anchor, fall back honestly
-│   │   ├── opentimestamps.py    Real Bitcoin-backed anchoring (free, no account)
-│   │   ├── ethereum.py          ABI-encoded `anchor(bytes32)` for EVM chains
-│   │   └── simulated.py         Offline, clearly labelled
-│   │
-│   ├── api/                     JSON API + page routes
-│   ├── templates/               Jinja2 pages (server-side rendered HTML)
-│   └── static/                  CSS, JS, vendored jsQR (no CDN needed)
+│   ├── templates/               12 Jinja2 pages (server-side rendered HTML)
+│   └── static/                  Hand-written CSS/JS + vendored jsQR (no CDN, no build step)
 │
-├── tests/                       Test suite (python -m pytest)
+├── tests/                       Test suite (python -m pytest): 244 tests
 └── data/                        Runtime state — git-ignored (ledger + keystore)
 ```
+
+**Why this split, and not more files:** `blockchain/` keeps two files because primitives
+and ledger are genuinely different reading tasks, while `config`, `storage`, `services`,
+`ledger`, `anchoring` and `seed` stay separate in `app/` because they are different
+layers. The API is split three ways by *who calls it*, not by resource. Anything finer
+would mean a reader chases a single function across five files to understand one flow.
 
 ---
 
@@ -264,30 +263,93 @@ The system runs on a **local JSON file by default**, which means it works on any
 college laptop with no internet. Add Firebase credentials and it moves to
 **Google Cloud Firestore** without a code change.
 
-### Enabling Firestore
+### Connecting Firebase, step by step
 
-1. Firebase console → **Project settings → Service accounts → Generate new private key**
-2. Save the JSON as `firebase-service-account.json` in the project root (it is git-ignored)
-3. Set the project id:
-   ```bash
-   echo "FIREBASE_PROJECT_ID=your-project-id" >> .env
-   ```
-4. Verify the connection:
-   ```bash
-   python manage.py firebase-check
-   ```
-5. Restart. The sidebar badge changes from **Local JSON** to **Firestore**.
+You need a Google account. The whole thing takes about five minutes and stays on the
+free Spark plan.
+
+**1. Create the project**
+
+* <https://console.firebase.google.com> → **Add project**
+* Name it, e.g. `bcoe-attendance-chain`. Analytics is not needed — turn it off.
+* Wait for the project to be created, then continue.
+
+**2. Create the Firestore database**
+
+* In the left sidebar: **Build → Firestore Database → Create database**
+* Choose **Production mode** (the app authenticates with a service account; open rules
+  are not needed and are a bad habit).
+* Pick a location near you — `asia-south1` (Mumbai) is the obvious one for BCOE.
+* Click **Enable**.
+
+**3. Generate a service account key**
+
+* ⚙️ **Project settings → Service accounts → Generate new private key**
+* A JSON file downloads. **This file is a password to your database.** Never commit
+  it, never email it, never put it in a screenshot.
+
+**4. Put the key where the app can find it**
+
+*On your own laptop* — save it as `firebase-service-account.json` in the project root.
+It is already git-ignored:
+
+```bash
+# the file must sit exactly here:
+AttendanceBT/firebase-service-account.json
+```
+
+*On a host such as Render* — paste the **entire contents** of the JSON file into one
+environment variable. On one line, exactly as downloaded:
+
+```
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account","project_id":"bcoe-...", ... }
+```
+
+The app reads the JSON from the environment first, and falls back to the file path.
+
+**5. Tell the app which project**
+
+Copy `.env.example` to `.env` and set:
+
+```bash
+FIREBASE_PROJECT_ID=bcoe-attendance-chain          # the id from step 1
+FIREBASE_SERVICE_ACCOUNT_PATH=firebase-service-account.json
+STORAGE_BACKEND=auto                                # auto | firestore | local
+FIRESTORE_PREFIX=                                   # optional namespace, e.g. "demo"
+```
+
+`.env` is read automatically on start-up. Real environment variables always win over
+the file, so the same `.env` is safe locally and on a server.
+
+**6. Check it**
+
+```bash
+python manage.py firebase-check
+```
+
+It prints which project it reached, which credential it used, and exactly what to fix
+if something is missing. Then restart the app — the sidebar badge changes from
+**Local JSON** to **Firestore**, and the Settings page shows the live project id.
+
+**7. Push your existing local data up (optional)**
+
+If you already demoed offline, `AUTO_SYNC_LOCAL_TO_CLOUD=true` (the default) uploads
+whatever is in `data/attendance_ledger.json` on first connect.
 
 **Design notes, because these are good viva answers:**
 
 * Firestore is reached over its **REST API using only `urllib`**, so the project does not
   depend on `firebase-admin` being installable. Authentication is a real service-account
-  JWT signed with a **pure-Python RS256 implementation** (`app/storage/_rs256.py`) — the
-  signature format was verified against OpenSSL.
+  JWT signed with a **pure-Python RS256 implementation** (the `_rs256` section of
+  `app/storage.py`) — the signature format was verified against OpenSSL.
 * If Firestore is unreachable, the app **keeps running on the local store** and says so.
   A database outage must never stop a lecturer taking attendance.
 * The local and cloud backends implement the *same* document interface, so every query is
   written once. Use `python manage.py export` for a portable backup at any time.
+* **The keystore is mirrored into Firestore too.** A hosting container's filesystem is
+  wiped on every deploy, so a file-only keystore would leave the chain full of records
+  whose signing keys no longer exist — the next attendance mark would fail. Keys are
+  therefore written to both places and recovered automatically after a redeploy.
 
 ---
 
@@ -317,7 +379,81 @@ application, this server, or this college.
 For Ethereum, the project prepares a genuine ABI-encoded
 `anchor(bytes32)` transaction (selector `eecdf927`). Paste the calldata into
 Etherscan's *Input Data* decoder and it decodes correctly. The Solidity contract is at
-`/api/anchors/contract/source` and in `app/anchoring/ethereum.py`.
+`/api/anchors/contract/source` and in the Ethereum provider in `app/anchoring.py`.
+
+---
+
+## Deploying on Render (public URL, free plan)
+
+The repository ships a **Render Blueprint** (`render.yaml`), so deployment is: push,
+click, done. Everything below uses only the free plan.
+
+### Which branch to connect
+
+> **Connect `arena/01a0e97f-attendancebt`** — the branch this work is on.
+>
+> `render.yaml` already names it explicitly (`branch:` at the top of the service
+> definition), so the Blueprint deploys that branch and keeps auto-deploying on every
+> push to it. Do **not** point it at `main` unless and until this branch is merged —
+> `main` does not contain this work yet.
+
+### Steps
+
+1. **Push the branch to GitHub** (it is already pushed):
+   ```bash
+   git push origin arena/01a0e97f-attendancebt
+   ```
+2. **Create the Blueprint**: <https://dashboard.render.com> → **New +** → **Blueprint**.
+3. **Connect the repository** `SohamMedley/AttendanceBT`. Render reads `render.yaml`
+   and shows the service `bcoe-attendance-chain` with its branch already filled in.
+4. **Apply**. The first build takes about two minutes (`pip install -r requirements.txt`).
+5. **Open the URL** Render gives you, e.g. `https://bcoe-attendance-chain.onrender.com`.
+
+The app starts empty on a fresh host, so the first thing to do is click
+**Create the register** on the first-run page (or run `python manage.py seed` from the
+Render shell), then **Generate six weeks of history** if you want a populated demo.
+
+### What the Blueprint sets
+
+| Setting | Value | Why |
+|---|---|---|
+| Runtime | Python 3.12, `pip install -r requirements.txt` | no Node, no build step |
+| Start command | `gunicorn "app:create_app()" --workers 1 --threads 8` | one worker, on purpose — see below |
+| Health check | `/api/system/health` | Render restarts a genuinely broken instance |
+| `SECRET_KEY` | generated by Render | never a default value in production |
+| `STORAGE_BACKEND` | `auto` | Firestore when configured, local otherwise |
+| `CHAIN_DIFFICULTY` | `4` | seals instantly, so the demo is never slow |
+| `ANCHOR_PROVIDER` | `simulated` | no external account needed to demonstrate |
+
+**Why exactly one worker:** the chain is loaded into memory and written back by the
+application. Two worker processes would each hold their own copy of the ledger and
+overwrite each other's blocks. One worker with eight threads serves a lecture hall
+comfortably — a QR refresh plus a handful of scans per minute.
+
+### The one thing you must know: `data/` is ephemeral
+
+On the free plan the container filesystem is **wiped on every deploy and restart**. That
+is fine for a demo, and it is exactly why this project recommends Firestore:
+
+* **Without Firebase** — the register, the chain and the keystore vanish when the
+  service restarts. Use `python manage.py export` to keep a copy, and re-seed after a
+  restart. Fine for showing the class; not fine for real records.
+* **With Firebase** — the chain *and* the keystore live in Firestore, so a restart
+  changes nothing. Set `FIREBASE_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT` in the
+  Render dashboard (see *Connecting Firebase* above) and redeploy.
+
+If you want the file-based setup to survive restarts without Firebase, add a Render
+disk and set `LOCAL_STORE_PATH=/var/data/attendance_ledger.json`. The free plan does
+not include disks, so this is shown commented out at the bottom of `render.yaml`.
+
+### Rough edges worth knowing
+
+* **Cold starts.** Free instances sleep after ~15 minutes idle; the next request takes
+  30–60 seconds to wake. Open the URL before you present.
+* **`QR_TOKEN_TTL`.** The rotating QR is the security mechanism. Leave it at 30 s; a
+  longer window makes screenshots worth forwarding.
+* **HTTPS is required for the phone camera.** Render serves HTTPS by default, so the
+  scanner on `/scan` works — it will not on a plain-HTTP self-hosted instance.
 
 ---
 
@@ -354,7 +490,7 @@ The **Anomaly** screen runs transparent detectors over the whole dataset — sha
 impossible overlaps, burst submissions, scripted clients, repeated-device students,
 low-turnout outliers — and reports the rule, the observed value and the threshold for
 every alert. On the six-week demo data it raises 191 alerts, and the three rules that
-fire are exactly the three behaviours `app/demo.py` deliberately plants.
+fire are exactly the three behaviours the history generator in `app/seed.py` plants.
 
 ---
 
@@ -394,7 +530,7 @@ examiners respect it.
 1. **The server holds student private keys** (custodial mode). This preserves tamper
    *evidence* fully: nobody can silently change a record. It does not give
    non-repudiation *against the student*, since the server could sign on their behalf.
-   `MODE_NON_CUSTODIAL` in `app/services/identity.py` implements the stronger model, where
+   `MODE_NON_CUSTODIAL` in `app/services.py` implements the stronger model, where
    the key is generated in the browser and never sent to the server.
 
 2. **The chain runs on a single node.** Consensus is not distributed or Byzantine-fault-
@@ -424,16 +560,16 @@ examiners respect it.
 
 | Syllabus topic | Implementation |
 |---|---|
-| Blockchain architecture, blocks, chain | `app/blockchain/block.py`, `chain.py` |
-| Cryptographic hashing (SHA-256) | Everywhere; `merkle.py` |
-| Public-key cryptography, digital signatures | `ecdsa.py` (secp256k1 from scratch) |
-| Merkle trees and inclusion proofs | `merkle.py`, shown on every receipt page |
-| Consensus: Proof-of-Work, difficulty, nonce | `proof_of_work.py`, live in the Explorer |
-| Smart contracts and EVM | `anchor(bytes32)` contract, ABI encoding in `ethereum.py` |
+| Blockchain architecture, blocks, chain | `app/blockchain/chain.py` |
+| Cryptographic hashing (SHA-256) | Everywhere; `blockchain/crypto.py` |
+| Public-key cryptography, digital signatures | `blockchain/crypto.py` (secp256k1 from scratch) |
+| Merkle trees and inclusion proofs | `blockchain/crypto.py`, shown on every receipt page |
+| Consensus: Proof-of-Work, difficulty, nonce | `blockchain/chain.py`, live in the Explorer |
+| Smart contracts and EVM | `anchor(bytes32)` contract, ABI encoding in `app/anchoring.py` |
 | Decentralised applications (dApp) | The entire Flask application |
 | Blockchain for records and trust | Attendance ledger + public anchoring |
 | Immutability and tamper detection | The 4-level Tamper Lab |
-| Limitations: scalability, key custody | README *Honest limitations*; `identity.py` |
+| Limitations: scalability, key custody | *Honest limitations* below; `app/services.py` |
 
 ---
 

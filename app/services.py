@@ -24,11 +24,12 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .blockchain import ecdsa
 from .storage import ANCHORS, ATTENDANCE, AUDIT, BLOCKS, FACULTY, META, SESSIONS, STUDENTS, SUBJECTS, Store
+
+log = logging.getLogger("bcoe.services")
 
 
 # ============================================================================
@@ -319,6 +320,9 @@ MODE_CUSTODIAL = "custodial"
 MODE_NON_CUSTODIAL = "non_custodial"
 
 DEFAULT_KEYSTORE = "data/keystore/keys.json"
+# Where the cloud mirror lives, in the same document store as everything else.
+KEYSTORE_COLLECTION = "keystore"
+KEYSTORE_DOCUMENT = "identities"
 
 
 @dataclass
@@ -342,32 +346,80 @@ class Identity:
 
 
 class KeyStore:
-    """A JSON-file keystore for server-held (custodial) identities."""
+    """A keystore for server-held (custodial) identities.
 
-    def __init__(self, path: str | os.PathLike[str] = DEFAULT_KEYSTORE) -> None:
+    Two homes, in this order:
+
+    1. **The file** (``data/keystore/keys.json``). Zero setup, easy to inspect,
+       and the whole point of the offline demo.
+    2. **The configured store**, when it is not the local file backend.
+
+    The second one exists for hosting. A container's filesystem is wiped on
+    every deploy and restart, so a file-only keystore would leave the ledger
+    full of records whose signing keys no longer exist -- the very next
+    attendance mark would fail with NO_IDENTITY. Mirroring the keystore into
+    Firestore makes keys survive a redeploy exactly like the chain does.
+    """
+
+    def __init__(
+        self,
+        path: str | os.PathLike[str] = DEFAULT_KEYSTORE,
+        store: Any = None,
+    ) -> None:
         self.path = Path(path)
+        self.store = store
         self._identities: dict[str, Identity] = {}
         self._loaded = False
 
     # ------------------------------------------------------------------
+    def _mirrored(self) -> bool:
+        """True when there is a separate backend worth mirroring into."""
+        return self.store is not None and getattr(self.store, "name", "local-json") != "local-json"
+
     def load(self) -> None:
         if self._loaded:
             return
+        self._loaded = True
+
         if self.path.is_file():
             try:
                 with self.path.open("r", encoding="utf-8") as handle:
                     raw = json.load(handle)
-                for owner_id, record in raw.get("identities", {}).items():
-                    self._identities[owner_id] = Identity(
-                        owner_id=owner_id,
-                        role=record.get("role", "student"),
-                        private_key=record["private_key"],
-                        public_key=record["public_key"],
-                        address=record.get("address", ""),
-                    )
+                self._absorb(raw.get("identities", {}))
             except (json.JSONDecodeError, KeyError) as exc:
                 log.error("Keystore %s is unreadable (%s); starting empty", self.path, exc)
-        self._loaded = True
+
+        if self._mirrored():
+            try:
+                cloud = self.store.get(KEYSTORE_COLLECTION, KEYSTORE_DOCUMENT)
+            except Exception as exc:  # pragma: no cover - backend dependent
+                log.warning("Could not read the keystore from %s: %s", self.store.name, exc)
+                return
+            if isinstance(cloud, dict):
+                # Anything already on this machine wins; the cloud copy only
+                # fills in keys that a redeploy would otherwise have lost.
+                added = self._absorb(cloud.get("identities", {}))
+                if added:
+                    log.info("Recovered %d key pair(s) from %s", added, self.store.name)
+
+    def _absorb(self, records: Mapping[str, Any]) -> int:
+        added = 0
+        for owner_id, record in (records or {}).items():
+            if owner_id in self._identities or not isinstance(record, dict):
+                continue
+            try:
+                self._identities[owner_id] = Identity(
+                    owner_id=owner_id,
+                    role=record.get("role", "student"),
+                    private_key=record["private_key"],
+                    public_key=record["public_key"],
+                    address=record.get("address", ""),
+                )
+            except KeyError:
+                log.error("Keystore entry %s is incomplete; skipped", owner_id)
+                continue
+            added += 1
+        return added
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -386,15 +438,36 @@ class KeyStore:
                 for owner_id, identity in self._identities.items()
             },
         }
-        temporary = self.path.with_suffix(".tmp")
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=1)
-        os.replace(temporary, self.path)
-        # Owner read/write only -- private keys must not be world-readable.
         try:
-            os.chmod(self.path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:  # pragma: no cover - platform dependent (Windows)
-            pass
+            temporary = self.path.with_suffix(".tmp")
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=1)
+            os.replace(temporary, self.path)
+            # Owner read/write only -- private keys must not be world-readable.
+            try:
+                os.chmod(self.path, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:  # pragma: no cover - platform dependent (Windows)
+                pass
+        except OSError as exc:
+            # A read-only filesystem is survivable when a real backend exists.
+            if not self._mirrored():
+                raise
+            log.warning("Could not write %s (%s); relying on %s", self.path, exc, self.store.name)
+
+        if self._mirrored():
+            try:
+                self.store.put(
+                    KEYSTORE_COLLECTION,
+                    KEYSTORE_DOCUMENT,
+                    {
+                        "mode": MODE_CUSTODIAL,
+                        "updated_at": time.time(),
+                        "identity_count": len(self._identities),
+                        "identities": payload["identities"],
+                    },
+                )
+            except Exception as exc:  # pragma: no cover - backend dependent
+                log.warning("Could not mirror the keystore to %s: %s", self.store.name, exc)
 
     # ------------------------------------------------------------------
     def create(self, owner_id: str, role: str = "student") -> Identity:
@@ -471,8 +544,10 @@ class KeyStore:
 INSTITUTION_OWNER_ID = "BCOE-INSTITUTION"
 
 
-def get_key_store(path: str | os.PathLike[str] = DEFAULT_KEYSTORE) -> KeyStore:
-    return KeyStore(path)
+def get_key_store(
+    path: str | os.PathLike[str] = DEFAULT_KEYSTORE, store: Any = None
+) -> KeyStore:
+    return KeyStore(path, store)
 
 
 def ensure_institution_identity(store: KeyStore) -> Identity:

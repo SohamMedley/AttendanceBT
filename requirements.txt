@@ -21,6 +21,10 @@ Flask>=3.0,<4.0
 # so Pillow is NOT required.
 qrcode>=7.4,<9.0
 
+# Production WSGI server. Render's start command runs gunicorn rather than the
+# Flask development server. Locally, `python manage.py serve` is fine.
+gunicorn>=21.2,<24.0
+
 # Test runner
 pytest>=8.0
 

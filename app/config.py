@@ -195,8 +195,47 @@ def _apply_section(target: Any, values: dict[str, Any]) -> None:
                 setattr(target, key, value)
 
 
+def load_env_file(path: str | os.PathLike[str] | None = None) -> int:
+    """Read a ``.env`` file into ``os.environ`` without overriding anything.
+
+    A twelve-line parser rather than a dependency: the format people actually
+    use is ``KEY=value`` with optional quotes and ``#`` comments. Real
+    environment variables always win, which is what makes the same file safe on
+    a laptop and on a host that injects its own configuration (Render, Docker,
+    systemd). Returns the number of variables that were newly set.
+    """
+    env_path = Path(path) if path else ROOT / ".env"
+    if not env_path.is_file():
+        return 0
+
+    applied = 0
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export "):].strip()
+        if not key or not key.replace("_", "").isalnum():
+            continue
+        value = value.strip()
+        if value[:1] in ("'", '"'):
+            # Quoted: everything up to the closing quote is the value, so a
+            # comment may follow it on the same line.
+            quote = value[0]
+            closing = value.find(quote, 1)
+            value = value[1:closing] if closing != -1 else value[1:]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        if key not in os.environ:
+            os.environ[key] = value
+            applied += 1
+    return applied
+
 def load_config(path: str | os.PathLike[str] | None = None) -> AppConfig:
     """Build the configuration object from file + environment."""
+    load_env_file()
     config = AppConfig()
     file_path = Path(path) if path else CONFIG_FILE
 

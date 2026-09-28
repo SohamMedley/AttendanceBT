@@ -1228,7 +1228,9 @@ class Services:
             keystore_path
             or (Path("data") / "keystore" / "keys.json")
         )
-        self.keystore = KeyStore(keystore_file)
+        # The store doubles as the keystore's cloud mirror: on a host with an
+        # ephemeral filesystem, keys recover from Firestore just like the chain.
+        self.keystore = KeyStore(keystore_file, self.store)
         self.keystore.load()
 
         self.ledger = Ledger(self.config, self.store, self.repo, self.keystore)

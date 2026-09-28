@@ -70,6 +70,7 @@ BLOCKS = "blocks"
 ANCHORS = "anchors"
 AUDIT = "audit"
 META = "meta"
+KEYSTORE = "keystore"
 
 ALL_COLLECTIONS = (
     STUDENTS,
@@ -81,6 +82,9 @@ ALL_COLLECTIONS = (
     ANCHORS,
     AUDIT,
     META,
+    # The custodial keystore is mirrored here by KeyStore.save(), so private
+    # keys survive a redeploy on a host with an ephemeral filesystem.
+    KEYSTORE,
 )
 
 SCHEMA_VERSION = 1

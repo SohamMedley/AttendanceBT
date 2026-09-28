@@ -204,6 +204,34 @@ class TestIdentity:
         second = services.keystore.get("BCOE23AI001")
         assert first.public_key == second.public_key
 
+    def test_keys_survive_a_wiped_filesystem(self, config, tmp_path):
+        """The keystore mirrors itself into a non-local store.
+
+        On a host with an ephemeral filesystem (any container host), the file
+        copy of the keystore is gone after every deploy. Without the mirror, the
+        first attendance mark after a redeploy would fail with NO_IDENTITY even
+        though every record is safely on the chain.
+        """
+        from app.ledger import Services
+        from app.storage import LocalStore
+
+        class FakeCloudStore(LocalStore):
+            name = "fake-cloud"
+
+        cloud = FakeCloudStore(tmp_path / "cloud.json")
+        cloud.init()
+
+        first = Services(config, keystore_path=str(tmp_path / "keys-a.json"), store=cloud)
+        first.keystore.create("BCOE23AI001", role="student")
+        first.keystore.save()
+        original = first.keystore.get("BCOE23AI001").private_key
+
+        # A redeploy: same cloud store, brand new (empty) filesystem.
+        second = Services(config, keystore_path=str(tmp_path / "keys-b.json"), store=cloud)
+        recovered = second.keystore.get("BCOE23AI001")
+        assert recovered is not None
+        assert recovered.private_key == original
+
     def test_different_owners_get_different_keys(self, seeded):
         a = seeded.keystore.get("BCOE23AI001")
         b = seeded.keystore.get("BCOE23AI002")
