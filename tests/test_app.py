@@ -90,6 +90,30 @@ class AttendanceTests(unittest.TestCase):
         self.assertEqual(data['pending'][0]['subject'], 'Blockchain & Technology')
         self.assertTrue(data['integrity_valid'])
 
+    def test_class_durations_and_separate_attendance(self):
+        lecture = self.teacher.get('/api/class').json['session']
+        self.assertEqual(lecture['duration_minutes'], 60)
+        self.assertEqual(lecture['ends_at'] - lecture['started_at'], 3600)
+        self.scan()
+        practical = self.post(self.teacher, '/api/class', type='Practical').json['session']
+        self.assertEqual(practical['duration_minutes'], 120)
+        self.assertEqual(practical['ends_at'] - practical['started_at'], 7200)
+        self.assertFalse(self.student.get('/api/student/status').json['present'])
+        self.scan()
+        records = self.teacher.get('/api/ledger').json['pending']
+        self.assertEqual([(r['session_type'], r['duration_minutes']) for r in records],
+                         [('Lecture', 60), ('Practical', 120)])
+        self.assertNotEqual(records[0]['session_id'], records[1]['session_id'])
+
+    def test_ended_class_rejects_new_attendance(self):
+        for kind in ('Lecture', 'Practical'):
+            active = self.post(self.teacher, '/api/class', type=kind).json['session']
+            with patch('app.time.time', return_value=active['ends_at']):
+                token = self.token()
+                self.assertEqual(self.scan(token).status_code, 409)
+                self.assertFalse(self.teacher.get('/api/class').json['session']['is_active'])
+                self.assertFalse(self.student.get('/api/student/status').json['present'])
+
     def test_roster_creation_and_login(self):
         response = self.post(self.teacher, '/api/students', student_id='15', name=' Shravani  Dongre ')
         self.assertEqual(response.status_code, 200)

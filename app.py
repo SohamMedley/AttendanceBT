@@ -77,6 +77,7 @@ class Ledger:
         "timestamp": time.time(), "session_id": class_session["id"],
         "session_type": class_session["type"], "subject": SUBJECT,
         "semester": "VII", "status": "Present",
+        "duration_minutes": class_session["duration_minutes"],
     })
     return True, f'{student["name"]} marked present for {class_session["type"].lower()}.'
 
@@ -102,9 +103,16 @@ student_tokens = {}
 
 
 def new_class(kind):
+  started = time.time()
+  duration = 60 if kind == "Lecture" else 120
   return {"id": secrets.token_hex(8), "type": kind, "subject": SUBJECT,
-          "started_at": time.time(),
+          "duration_minutes": duration, "started_at": started,
+          "ends_at": started + duration * 60,
           "date": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y")}
+
+
+def class_info():
+  return {**active_class, "is_active": time.time() < active_class["ends_at"]}
 
 
 active_class = new_class("Lecture")
@@ -251,7 +259,7 @@ def class_session():
       if kind not in ("Lecture", "Practical"):
         return jsonify(message="Choose Lecture or Practical."), 400
       active_class = new_class(kind)
-    return jsonify(session=active_class)
+    return jsonify(session=class_info())
 
 
 def get_student_token(roll):
@@ -292,7 +300,7 @@ def student_status():
   with ledger_lock:
     records = ledger.pending_transactions + [tx for b in ledger.chain[1:] for tx in b.transactions]
     present = any(tx["student_id"] == session["student_id"] and tx["session_id"] == active_class["id"] for tx in records)
-    return jsonify(present=present, session=active_class)
+    return jsonify(present=present, session=class_info())
 
 
 @app.post("/api/scan")
@@ -311,12 +319,14 @@ def scan_attendance():
   except (BadSignature, ValueError, TypeError):
     return jsonify(message="Invalid QR code. Use the student's live Provex QR."), 400
   with ledger_lock:
+    if time.time() >= active_class["ends_at"]:
+      return jsonify(message="This class has ended. Start a new lecture or practical before scanning."), 409
     if time.time() >= expires:
       return jsonify(message="QR expired. Ask the student to show their refreshed code."), 400
     if roll not in students or student_tokens.get(roll, {}).get("token") != token:
       return jsonify(message="QR no longer valid. Ask the student to refresh their page."), 400
     success, message = ledger.add_transaction(students[roll], active_class)
-    return jsonify(success=success, message=message, student=students[roll], session=active_class), 200 if success else 409
+    return jsonify(success=success, message=message, student=students[roll], session=class_info()), 200 if success else 409
 
 
 @app.get("/api/ledger")
@@ -329,7 +339,7 @@ def get_ledger():
                 b.previous_hash == (ledger.chain[i - 1].hash if i else "0" * 64)
                 for i, b in enumerate(ledger.chain))
     return jsonify(chain=blocks, pending=ledger.pending_transactions, integrity_valid=valid,
-                   session=active_class, student_count=len(students))
+                   session=class_info(), student_count=len(students))
 
 
 @app.post("/api/mine")

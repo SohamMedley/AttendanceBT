@@ -9,7 +9,9 @@ Teacher-scanned attendance for **Blockchain & Technology**, **Semester VII**, at
 Demo login: **Payal Mam** / **BT#PT**.
 
 - Manage student profiles (full name and roll number).
-- Start a **Lecture** or **Practical** session. A demo lecture is active on startup.
+- Start a **Blockchain Lecture (1 hour / 60 minutes)** or **Blockchain Practical (2 hours / 120 minutes)**. A demo lecture is active on startup. Scans are rejected once the session ends; start a new class to resume.
+- Attendance has separate **Lecture** and **Practical** tabs with independent record counts and CSV exports. Presence in a lecture never marks presence in a practical. Each record stores its class type, session ID, and duration.
+- **Verification history** is the hash-linked audit view, not a class or attendance category.
 - Open **Scan student QR**, allow camera access, and scan the student's live personal QR. A valid scan marks them **Present** for the active session.
 - **Camera only:** there is no image upload or manual-token entry. Allow camera access in your HTTPS browser.
 - Successful scans show an animated checkmark and the student’s name/roll number. Select **Scan next student** to continue; the same QR will not repeatedly overwrite the success message.

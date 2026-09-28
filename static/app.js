@@ -1,6 +1,8 @@
 const $ = id => document.getElementById(id);
 let ledgerData = {chain: [], pending: [], session: {}}, records = [];
 let seenRecords = new Set(), ledgerLoaded = false;
+let attendanceType='Lecture', currentView='overview';
+const durationLabel = item => item.duration_minutes === 120 ? '2 hours' : '1 hour';
 const motion = window.provexMotion;
 const recordKey = r => r.session_id + ':' + r.student_id;
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -18,15 +20,22 @@ function student(record) {const initials=record.name.split(/\s+/).slice(0,2).map
 function renderAttendance() {
  const current = records.filter(r => r.session_id === ledgerData.session.id);
  $('recent-body').innerHTML = current.length ? current.slice(0,5).map(r => `<tr data-record="${escapeHtml(recordKey(r))}"><td>${student(r)}</td><td>${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty"><span class="empty-icon">♙</span><strong>Your first check-in starts here</strong><p>Open the scanner and scan a personal student QR.<br>Present students will appear here in real time.</p></td></tr>';
- const query = $('search').value.toLowerCase(); const filtered = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query));
- $('attendance-body').innerHTML = filtered.length ? filtered.map(r => `<tr data-record="${escapeHtml(recordKey(r))}"><td>${student(r)}</td><td>${escapeHtml(r.student_id)}</td><td>${escapeHtml(r.session_type)}</td><td>${new Date(r.timestamp*1000).toLocaleDateString()} · ${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No matching attendance records.</td></tr>';
+ $('lecture-record-count').textContent=records.filter(r=>r.session_type==='Lecture').length;
+ $('practical-record-count').textContent=records.filter(r=>r.session_type==='Practical').length;
+ const query = $('search').value.toLowerCase(); const filtered = records.filter(r => r.session_type===attendanceType && `${r.name} ${r.student_id}`.toLowerCase().includes(query));
+ $('attendance-body').innerHTML = filtered.length ? filtered.map(r => `<tr data-record="${escapeHtml(recordKey(r))}"><td>${student(r)}</td><td>${escapeHtml(r.student_id)}</td><td>${escapeHtml(r.session_type)} · ${durationLabel(r)}</td><td>${new Date(r.timestamp*1000).toLocaleDateString()} · ${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No matching attendance records.</td></tr>';
 }
 async function fetchLedger() {
  const data = await api('/api/ledger'); ledgerData = data;
  records = [...data.pending.map(r=>({...r,pending:true})), ...data.chain.slice(1).flatMap(b=>b.transactions.map(r=>({...r,pending:false})))].sort((a,b)=>b.timestamp-a.timestamp);
  const present = records.filter(r => r.session_id === data.session.id).length;
  motion.count('total-count',present); motion.count('session-present',present); $('nav-count').textContent=records.length; $('recent-count').textContent=present; $('roster-count').textContent=data.student_count;
- $('active-class-type').textContent=data.session.type; $('active-class-date').textContent=data.session.date; $('hero-class').textContent=data.session.type.toUpperCase(); $('scanner-class').textContent=data.session.type.toLowerCase()+' · Blockchain & Technology';
+ $('active-class-type').textContent='Blockchain '+data.session.type; $('active-class-date').textContent=data.session.date+' · '+time(data.session.started_at)+'–'+time(data.session.ends_at)+' IST';
+ $('class-live-status').textContent=data.session.is_active?'● Live':'Ended';
+ $('class-duration').textContent=durationLabel(data.session)+' · '+(data.session.is_active ? data.session.type+' attendance' : 'Session ended');
+ $('hero-class').textContent=data.session.type.toUpperCase()+' · '+durationLabel(data.session);
+ $('scanner-class').textContent='Blockchain '+data.session.type+' ('+durationLabel(data.session)+')';
+ for(const id of ['check-in-button','attendance-check-in','class-scan'])$(id).disabled=!data.session.is_active;
  $('connection').innerHTML='<i></i> System operational';
  motion.count('pending-count',data.pending.length); motion.count('blocks-count',data.chain.length-1); $('mine-button').disabled=!data.pending.length;
  const linked=data.integrity_valid === true;
@@ -39,19 +48,29 @@ async function fetchLedger() {
 async function pollLedger(){try{await fetchLedger();}catch{ $('connection').textContent='Connection interrupted'; }finally{setTimeout(pollLedger,4000);}}
 
 function setView(next){
- const titles={overview:['Overview','University of Mumbai · SEM VII · Blockchain & Technology'],attendance:['Attendance','Every lecture and practical, in one place.'],ledger:['Blockchain ledger','A transparent trail, from the first block onward.'],students:['Student profiles','Their name. Their roll number. Their personal QR.']};
+ currentView=next;
+ const titles={overview:['Overview','University of Mumbai · SEM VII · Blockchain & Technology'],attendance:['Attendance','Separate attendance for lectures and practicals.'],ledger:['Verification history','Hash-linked proof of lecture and practical attendance.'],students:['Student profiles','Their name. Their roll number. Their personal QR.']};
  $('page-title').textContent=titles[next][0];$('breadcrumb').textContent=titles[next][0];$('page-description').textContent=titles[next][1];
  $('hero').hidden=next!=='overview';$('overview-panels').hidden=next!=='overview';$('attendance-panel').hidden=next!=='attendance';$('students-panel').hidden=next!=='students';$('ledger-panel').hidden=!['overview','ledger'].includes(next);
  document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===next));
+ updateExportLabel();
  document.querySelectorAll('.page-heading, main > section:not([hidden]), #overview-panels:not([hidden])').forEach(element=>motion.enter(element));
  if(next==='students')loadRoster().catch(error=>toast(error.message));
 }
 document.querySelectorAll('.nav').forEach(n=>n.addEventListener('click',()=>setView(n.dataset.view)));
-$('view-all').onclick=()=>setView('attendance');$('search').oninput=renderAttendance;
+$('view-all').onclick=()=>{setAttendanceType(ledgerData.session.type || 'Lecture');setView('attendance');};$('search').oninput=renderAttendance;
 $('mine-button').onclick=async()=>{const button=$('mine-button');button.disabled=true;try{const data=await post('/api/mine');toast(`Block #${data.block_index} sealed successfully.`);await fetchLedger();}catch(error){toast(error.message);}finally{button.disabled=!ledgerData.pending.length;}};
+function updateExportLabel(){$('export-button').textContent=currentView==='attendance' ? '↓ Export '+attendanceType.toLowerCase() : '↓ Export all records';}
+function setAttendanceType(type){
+ attendanceType=type;
+ document.querySelectorAll('[data-attendance]').forEach(button=>{const selected=button.dataset.attendance===type;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
+ $('attendance-scope').textContent=type+' attendance only · '+(type==='Lecture'?'1 hour':'2 hours')+' per session · Counts are check-ins across sessions';
+ updateExportLabel();renderAttendance();motion.enter($('attendance-body'));
+}
+document.querySelectorAll('[data-attendance]').forEach(button=>button.onclick=()=>setAttendanceType(button.dataset.attendance));
 $('start-session').onclick=async()=>{
  const kind=$('session-type').value;
- if(!confirm('Start a new '+kind.toLowerCase()+'? This creates a fresh attendance session. Existing records are kept.'))return;
+ if(!confirm('Start a new Blockchain '+kind.toLowerCase()+' ('+(kind==='Lecture'?'1 hour':'2 hours')+')? This creates a fresh attendance session. Existing records are kept.'))return;
  $('start-session').disabled=true;
  try{await post('/api/class',{type:kind});await fetchLedger();toast(kind+' started. Scan each student once for this session.');}catch(error){toast(error.message);}finally{$('start-session').disabled=false;}
 };
@@ -94,7 +113,7 @@ async function submitToken(token){
    if(generation===scanGeneration && $('check-in-dialog').open){
      scanComplete=true;$('scan-guide').hidden=true;
      $('scan-student-name').textContent=data.student.name;
-     $('scan-student-details').textContent='Roll No. '+data.student.student_id+' · '+data.session.type+' · SEM VII';
+     $('scan-student-details').textContent='Roll No. '+data.student.student_id+' · Blockchain '+data.session.type+' · '+durationLabel(data.session);
      $('scan-confirmation').hidden=false;
      $('scan-result').textContent=data.message;$('scan-result').className='scan-success';
      $('scan-next').focus({preventScroll:true});
@@ -129,9 +148,10 @@ $('start-camera').onclick=async()=>{
  }finally{starting=null;}
 };
 $('export-button').onclick=()=>{
- if(!records.length){toast('No attendance records to export yet.');return;}
+ const exportRecords=currentView==='attendance'?records.filter(r=>r.session_type===attendanceType):records;
+ if(!exportRecords.length){toast('No '+(currentView==='attendance'?attendanceType.toLowerCase()+' ':'')+'attendance records to export yet.');return;}
  const cell=value=>'"'+String(value).replace(/^[\s]*[=+@-]|^[\t\r\n]/,"'$&").replace(/"/g,'""')+'"';
- const csv=[['Roll number','Name','Subject','Semester','Class','Session ID','Checked in (UTC)','Attendance','Ledger status'],...records.map(r=>[r.student_id,r.name,r.subject,r.semester,r.session_type,r.session_id,new Date(r.timestamp*1000).toISOString(),'Present',r.pending?'Pending':'Sealed'])].map(row=>row.map(cell).join(',')).join('\r\n');
- const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download='bcoe-sem-vii-attendance.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Attendance export downloaded.');
+ const csv=[['Roll number','Name','Subject','Semester','Class','Duration (minutes)','Session ID','Checked in (UTC)','Attendance','Ledger status'],...exportRecords.map(r=>[r.student_id,r.name,r.subject,r.semester,r.session_type,r.duration_minutes,r.session_id,new Date(r.timestamp*1000).toISOString(),'Present',r.pending?'Pending':'Sealed'])].map(row=>row.map(cell).join(',')).join('\r\n');
+ const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download='bcoe-sem-vii-'+(currentView==='attendance'?attendanceType.toLowerCase():'all')+'-attendance.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Attendance export downloaded.');
 };
 pollLedger();
