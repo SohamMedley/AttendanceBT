@@ -854,18 +854,21 @@ class FirestoreStore(Store):
                 }
             }
 
-        # Firestore requires the first orderBy to be __name__ when paginating.
+        # Order by the requested field, then by document name to make paging
+        # deterministic. Firestore appends __name__ itself when it is not
+        # given, and it appends it with the SAME direction as the last ordered
+        # field -- "ORDER BY a DESC becomes ORDER BY a DESC, __name__ DESC".
+        # Sending __name__ ASCENDING after a DESCENDING field therefore
+        # contradicts the primary direction and the request is rejected with
+        # "order by clause cannot contain more fields after the key". Every
+        # descending query (newest attendance first, newest anchor first) failed
+        # on Firestore for exactly this reason while the local JSON store, which
+        # sorts in Python, was unaffected.
         order_field = str(order_by) if order_by else "__name__"
-        structured["orderBy"] = [
-            {
-                "field": {"fieldPath": order_field},
-                "direction": "DESCENDING" if descending else "ASCENDING",
-            }
-        ]
+        direction = "DESCENDING" if descending else "ASCENDING"
+        structured["orderBy"] = [{"field": {"fieldPath": order_field}, "direction": direction}]
         if order_field != "__name__":
-            structured["orderBy"].append(
-                {"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}
-            )
+            structured["orderBy"].append({"field": {"fieldPath": "__name__"}, "direction": direction})
 
         documents: list[dict[str, Any]] = []
         offset = 0

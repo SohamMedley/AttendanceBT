@@ -198,6 +198,51 @@ class TestStorage:
 # ---------------------------------------------------------------------------
 # Key custody
 # ---------------------------------------------------------------------------
+class TestFirestoreQueryShape:
+    """The structured query we send must be one Firestore accepts.
+
+    This is the bug that only appeared on a real deployment: the local JSON
+    store sorts in Python, so a malformed Firestore query is invisible until the
+    app runs against the cloud. Every descending list (newest attendance, newest
+    anchor) returned HTTP 500 on Render while everything passed locally.
+    """
+
+    @staticmethod
+    def _build(**kwargs):
+        from app.storage import FirestoreStore
+
+        store = FirestoreStore.__new__(FirestoreStore)      # no constructor: no network
+        store.prefix = ""
+        store.base_url = "https://firestore.googleapis.com/v1/projects/demo/databases/(default)/documents"
+        captured = {}
+
+        def fake_request(method, path, payload=None, **rest):
+            captured["query"] = payload["structuredQuery"]
+            return []                                       # an empty page ends paging
+
+        store._request = fake_request
+        store._run_query("attendance", {}, kwargs.get("order_by"), kwargs.get("descending", False))
+        return captured["query"]
+
+    def test_descending_order_uses_a_matching_tiebreaker(self):
+        """ORDER BY a DESC must become a DESC, __name__ DESC -- never __name__ ASC."""
+        query = self._build(order_by="marked_at", descending=True)
+        assert query["orderBy"] == [
+            {"field": {"fieldPath": "marked_at"}, "direction": "DESCENDING"},
+            {"field": {"fieldPath": "__name__"}, "direction": "DESCENDING"},
+        ]
+
+    def test_ascending_order_uses_an_ascending_tiebreaker(self):
+        query = self._build(order_by="faculty_id")
+        assert [o["direction"] for o in query["orderBy"]] == ["ASCENDING", "ASCENDING"]
+
+    def test_an_unordered_list_orders_by_name_only(self):
+        query = self._build()
+        assert query["orderBy"] == [
+            {"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}
+        ]
+
+
 class TestIdentity:
     def test_keys_are_created_once_and_reused(self, services):
         first = services.keystore.create("BCOE23AI001", role="student")

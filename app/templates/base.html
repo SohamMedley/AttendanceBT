@@ -15,7 +15,11 @@
   document.documentElement.classList.add("js");
   try {
     var t = localStorage.getItem("bcoe.attendance.theme");
-    if (!t) t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    /* Dark is the default regardless of the operating system: this is a
+       blockchain ledger shown on projectors, and the dark palette is the one
+       the design is built around. Light is opt-in via the toggle, and the
+       choice is remembered. */
+    if (t !== "light" && t !== "dark") t = "dark";
     document.documentElement.setAttribute("data-theme", t);
   } catch (e) { /* private mode: keep the default */ }
 </script>

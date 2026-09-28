@@ -217,7 +217,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   opacity: 0.22;
   animation: drift-c 38s ease-in-out infinite alternate;
 }
-[data-theme="light"] .aurora span { opacity: 0.26; }
+/* Light is the secondary theme (the toggle): keep the aurora restrained so the
+   page reads as clean paper rather than a tinted wash. */
+[data-theme="light"] .aurora span { opacity: 0.16; }
+[data-theme="light"] .aurora::after { opacity: 0.35; }
+[data-theme="light"] body { background: var(--bg); }
 
 @keyframes drift-a { to { transform: translate3d(6vw, 4vh, 0) scale(1.12); } }
 @keyframes drift-b { to { transform: translate3d(-8vw, 6vh, 0) scale(1.08); } }

@@ -350,8 +350,7 @@ function applyTheme(theme) {
 function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch { /* private mode */ }
-  const preferred = saved
-    || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  const preferred = saved === "light" || saved === "dark" ? saved : "dark";
   applyTheme(preferred);
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".theme-toggle")) return;
