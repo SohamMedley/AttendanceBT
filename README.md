@@ -11,7 +11,9 @@ Demo login: **Payal Mam** / **BT#PT**.
 - Manage student profiles (full name and roll number).
 - Start a **Lecture** or **Practical** session. A demo lecture is active on startup.
 - Open **Scan student QR**, allow camera access, and scan the student's live personal QR. A valid scan marks them **Present** for the active session.
-- Use a QR image upload or paste decoded QR contents if camera access is unavailable. These paths perform the same server-side validation.
+- **Camera only:** there is no image upload or manual-token entry. Allow camera access in your HTTPS browser.
+- Successful scans show an animated checkmark and the student’s name/roll number. Select **Scan next student** to continue; the same QR will not repeatedly overwrite the success message.
+- The camera stops when the scanner closes or the page is hidden. Attendance highlights, counters, QR refreshes, and page transitions respect reduced-motion preferences.
 - View/search attendance, export CSV, and seal pending records into hash-linked blocks.
 - Starting a new session retains old attendance and allows each student to be marked present once in the new session. Duplicates in the same session are rejected even after sealing.
 
@@ -49,6 +51,7 @@ Open `http://localhost:5000/admin/dashboard` for the teacher and `http://localho
 node --check static/app.js
 node --check static/student.js
 node --check static/auth.js
+node --check static/motion.js
 ```
 
 QR scanning uses the locally vendored **html5-qrcode 2.3.8** library; its license is included in `static/vendor/`. No third-party scanner CDN is required at runtime. Camera images are decoded in the browser; the decoded token is sent to the server for validation.
@@ -93,7 +96,7 @@ Secure cookies are enabled when Render's `RENDER=true` environment flag is prese
 | Build fails | Check build logs; the command must install `requirements.txt`. |
 | Health check fails | Check runtime logs; start command must bind to `0.0.0.0:$PORT`, health path `/healthz`. |
 | First load is slow | The free instance may be waking up. Wait and retry. |
-| Camera denied/unavailable | Open the HTTPS URL directly in a browser, not an embedded preview. Allow camera access, or upload a current QR image. |
+| Camera denied/unavailable | Open the HTTPS URL directly in a browser, not an embedded preview. Allow camera access and retry. Image upload and pasted tokens are not available. |
 | Student can't sign in | Teacher must create their profile first; verify full-name spelling and roll number. |
 | Student/teacher got signed out | Different roles share the browser cookie; use separate browser sessions. A server restart may also invalidate demo sessions. |
 | QR expired | Ask the student to show the refreshed live QR. Validity is strictly 60 seconds. |

@@ -1,5 +1,8 @@
 const $ = id => document.getElementById(id);
 let ledgerData = {chain: [], pending: [], session: {}}, records = [];
+let seenRecords = new Set(), ledgerLoaded = false;
+const motion = window.provexMotion;
+const recordKey = r => r.session_id + ':' + r.student_id;
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const time = timestamp => new Date(timestamp * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'});
 let toastTimer;
@@ -14,22 +17,24 @@ const badge = pending => `<span class="pill ${pending ? 'amber-pill' : 'green'}"
 function student(record) {const initials=record.name.split(/\s+/).slice(0,2).map(s=>s[0]).join('');return `<div class="student-cell"><span class="student-avatar">${escapeHtml(initials)}</span><div>${escapeHtml(record.name)}<small>${escapeHtml(record.student_id)}</small></div></div>`;}
 function renderAttendance() {
  const current = records.filter(r => r.session_id === ledgerData.session.id);
- $('recent-body').innerHTML = current.length ? current.slice(0,5).map(r => `<tr><td>${student(r)}</td><td>${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty"><span class="empty-icon">♙</span><strong>Your first check-in starts here</strong><p>Open the scanner and scan a personal student QR.<br>Present students will appear here in real time.</p></td></tr>';
+ $('recent-body').innerHTML = current.length ? current.slice(0,5).map(r => `<tr data-record="${escapeHtml(recordKey(r))}"><td>${student(r)}</td><td>${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty"><span class="empty-icon">♙</span><strong>Your first check-in starts here</strong><p>Open the scanner and scan a personal student QR.<br>Present students will appear here in real time.</p></td></tr>';
  const query = $('search').value.toLowerCase(); const filtered = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query));
- $('attendance-body').innerHTML = filtered.length ? filtered.map(r => `<tr><td>${student(r)}</td><td>${escapeHtml(r.student_id)}</td><td>${escapeHtml(r.session_type)}</td><td>${new Date(r.timestamp*1000).toLocaleDateString()} · ${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No matching attendance records.</td></tr>';
+ $('attendance-body').innerHTML = filtered.length ? filtered.map(r => `<tr data-record="${escapeHtml(recordKey(r))}"><td>${student(r)}</td><td>${escapeHtml(r.student_id)}</td><td>${escapeHtml(r.session_type)}</td><td>${new Date(r.timestamp*1000).toLocaleDateString()} · ${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No matching attendance records.</td></tr>';
 }
 async function fetchLedger() {
  const data = await api('/api/ledger'); ledgerData = data;
  records = [...data.pending.map(r=>({...r,pending:true})), ...data.chain.slice(1).flatMap(b=>b.transactions.map(r=>({...r,pending:false})))].sort((a,b)=>b.timestamp-a.timestamp);
  const present = records.filter(r => r.session_id === data.session.id).length;
- $('total-count').textContent=present; $('session-present').textContent=present; $('nav-count').textContent=records.length; $('recent-count').textContent=present; $('roster-count').textContent=data.student_count;
+ motion.count('total-count',present); motion.count('session-present',present); $('nav-count').textContent=records.length; $('recent-count').textContent=present; $('roster-count').textContent=data.student_count;
  $('active-class-type').textContent=data.session.type; $('active-class-date').textContent=data.session.date; $('hero-class').textContent=data.session.type.toUpperCase(); $('scanner-class').textContent=data.session.type.toLowerCase()+' · Blockchain & Technology';
  $('connection').innerHTML='<i></i> System operational';
- $('pending-count').textContent=data.pending.length; $('blocks-count').textContent=data.chain.length-1; $('mine-button').disabled=!data.pending.length;
+ motion.count('pending-count',data.pending.length); motion.count('blocks-count',data.chain.length-1); $('mine-button').disabled=!data.pending.length;
  const linked=data.integrity_valid === true;
  $('integrity').textContent=linked?'Verified':'Warning'; $('integrity-note').textContent=linked?'All hashes and links verified':'Ledger integrity check failed';
  $('block-height').textContent='Chain height: '+(data.chain.length-1);
  $('ledger-body').innerHTML=data.chain.slice().reverse().map(b=>`<tr><td class="block-tag">⬡ #${String(b.index).padStart(3,'0')} ${b.index===0?'<span class="count-badge">Genesis</span>':''}</td><td><code title="${escapeHtml(b.hash)}">${escapeHtml(b.hash.slice(0,16))}…</code></td><td><code title="${escapeHtml(b.previous_hash)}">${escapeHtml(b.previous_hash.slice(0,16))}…</code></td><td>${b.index===0?'—':b.transactions.length+' records'}</td><td>${time(b.timestamp)}</td><td><span class="pill green">✓ Sealed</span></td></tr>`).join(''); renderAttendance();
+ if(ledgerLoaded) document.querySelectorAll('[data-record]').forEach(row=>{if(!seenRecords.has(row.dataset.record))motion.present(row);});
+ seenRecords=new Set(records.map(recordKey));ledgerLoaded=true;
 }
 async function pollLedger(){try{await fetchLedger();}catch{ $('connection').textContent='Connection interrupted'; }finally{setTimeout(pollLedger,4000);}}
 
@@ -38,6 +43,7 @@ function setView(next){
  $('page-title').textContent=titles[next][0];$('breadcrumb').textContent=titles[next][0];$('page-description').textContent=titles[next][1];
  $('hero').hidden=next!=='overview';$('overview-panels').hidden=next!=='overview';$('attendance-panel').hidden=next!=='attendance';$('students-panel').hidden=next!=='students';$('ledger-panel').hidden=!['overview','ledger'].includes(next);
  document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===next));
+ document.querySelectorAll('.page-heading, main > section:not([hidden]), #overview-panels:not([hidden])').forEach(element=>motion.enter(element));
  if(next==='students')loadRoster().catch(error=>toast(error.message));
 }
 document.querySelectorAll('.nav').forEach(n=>n.addEventListener('click',()=>setView(n.dataset.view)));
@@ -54,31 +60,74 @@ $('student-form').onsubmit=async event=>{event.preventDefault();$('create-studen
 $('copy-student-link').onclick=async()=>{try{await navigator.clipboard.writeText(location.origin+'/student');toast('Student portal link copied.');}catch{toast('Student portal: '+location.origin+'/student');}};
 $('logout').onclick=async()=>{try{const data=await post('/api/logout');location.href=data.redirect;}catch(error){toast(error.message);}};
 
-let scanner=null, starting=null, scanBusy=false, lastToken='', lastScan=0;
-function openCheckIn(){ $('scan-result').textContent='';$('check-in-dialog').showModal(); }
+let scanner=null, starting=null, stopping=null, scanBusy=false, scanComplete=false, scanGeneration=0;
+let lastToken='', lastScan=0;
+function openCheckIn(){
+ scanGeneration++; scanComplete=false;lastToken='';
+ $('scan-result').textContent='';$('scan-confirmation').hidden=true;$('scan-guide').hidden=true;
+ $('check-in-dialog').showModal();
+}
 $('check-in-button').onclick=openCheckIn;$('attendance-check-in').onclick=openCheckIn;$('class-scan').onclick=openCheckIn;
 $('close-dialog').onclick=()=>$('check-in-dialog').close();
-async function stopCamera(){if(starting){try{await starting;}catch{}}if(scanner?.isScanning){try{await scanner.stop();}catch{}}}
-$('check-in-dialog').addEventListener('close',()=>{stopCamera();$('scan-token').value='';$('qr-file').value='';});
-function getScanner(){if(!window.Html5Qrcode)throw new Error('QR scanner could not load. Reload the page or paste a decoded token.');if(!scanner)scanner=new Html5Qrcode('camera-reader');return scanner;}
-async function submitToken(token){
- if(scanBusy || (token===lastToken && Date.now()-lastScan<4000))return;
- scanBusy=true;lastToken=token;lastScan=Date.now();$('submit-check-in').disabled=true;
- try{const data=await post('/api/scan',{token});$('scan-result').textContent='✓ '+data.message;$('scan-result').className='scan-success';toast(data.message);await fetchLedger();}
- catch(error){$('scan-result').textContent=error.message;$('scan-result').className='scan-error';}
- finally{scanBusy=false;$('submit-check-in').disabled=false;}
+async function stopCamera(){
+ if(stopping)return stopping;
+ stopping=(async()=>{
+   if(starting){try{await starting;}catch{}}
+   if(scanner?.isScanning){try{await scanner.stop();}catch{}}
+   $('scan-guide').hidden=true;$('start-camera').disabled=false;$('start-camera').textContent='Enable camera';
+ })();
+ try{await stopping;}finally{stopping=null;}
 }
-$('start-camera').onclick=async()=>{
- $('start-camera').disabled=true;$('scan-result').textContent='';
- try{const reader=getScanner();if(reader.isScanning)return;
- starting=reader.start({facingMode:'environment'},{fps:10,qrbox:(w,h)=>{const size=Math.floor(Math.min(w,h)*.75);return {width:size,height:size};}},decoded=>{if($('check-in-dialog').open)submitToken(decoded);},()=>{});
- await starting;
- if(!$('check-in-dialog').open)await stopCamera();
- }catch{$('scan-result').textContent='Camera unavailable. Open this page in an HTTPS browser, allow camera access, or choose a QR image below.';$('scan-result').className='scan-error';}
- finally{starting=null;$('start-camera').disabled=false;}
+$('check-in-dialog').addEventListener('close',()=>{scanGeneration++;scanComplete=false;stopCamera();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden && $('check-in-dialog').open)$('check-in-dialog').close();});
+function getScanner(){
+ if(!window.Html5Qrcode)throw new Error('Scanner unavailable. Reload this page and try again.');
+ if(!scanner)scanner=new Html5Qrcode('camera-reader');return scanner;
+}
+async function submitToken(token){
+ if(scanBusy || scanComplete || !$('check-in-dialog').open || (token===lastToken && Date.now()-lastScan<4000))return;
+ const generation=scanGeneration;
+ scanBusy=true;lastToken=token;lastScan=Date.now();
+ $('scanner-stage').classList.add('is-verifying');$('scan-result').className='';$('scan-result').textContent='Verifying student QR…';
+ try{
+   const data=await post('/api/scan',{token});
+   if(generation===scanGeneration && $('check-in-dialog').open){
+     scanComplete=true;$('scan-guide').hidden=true;
+     $('scan-student-name').textContent=data.student.name;
+     $('scan-student-details').textContent='Roll No. '+data.student.student_id+' · '+data.session.type+' · SEM VII';
+     $('scan-confirmation').hidden=false;
+     $('scan-result').textContent=data.message;$('scan-result').className='scan-success';
+     $('scan-next').focus({preventScroll:true});
+   }
+   toast(data.message);
+   try{await fetchLedger();}catch{toast('Attendance saved. Dashboard will update when the connection returns.');}
+ }catch(error){
+   if(generation===scanGeneration){$('scan-result').textContent=error.message;$('scan-result').className='scan-error';motion.enter($('scan-result'));}
+ }finally{scanBusy=false;$('scanner-stage').classList.remove('is-verifying');}
+}
+$('scan-next').onclick=()=>{
+ scanComplete=false;lastToken='';$('scan-confirmation').hidden=true;$('scan-guide').hidden=false;
+ $('scan-result').className='';$('scan-result').textContent='Ready for the next student. Hold their QR inside the frame.';
+ $('close-dialog').focus({preventScroll:true});
 };
-$('qr-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{await stopCamera();const decoded=await getScanner().scanFile(file,true);await submitToken(decoded);}catch{$('scan-result').textContent='Could not read this QR image. Choose a clear image of the student’s current code.';$('scan-result').className='scan-error';}finally{event.target.value='';}};
-$('check-in-form').onsubmit=event=>{event.preventDefault();submitToken($('scan-token').value.trim());};
+$('start-camera').onclick=async()=>{
+ if(starting)return;
+ if(stopping)await stopping;
+ const generation=scanGeneration;
+ if(!$('check-in-dialog').open)return;
+ $('start-camera').disabled=true;$('start-camera').textContent='Opening camera…';$('scan-result').textContent='';
+ try{
+   const reader=getScanner();
+   starting=reader.start({facingMode:'environment'},{fps:10,qrbox:(w,h)=>{const size=Math.floor(Math.min(w,h)*.75);return {width:size,height:size};}},decoded=>{if(generation===scanGeneration)submitToken(decoded);},()=>{});
+   await starting;
+   if(generation===scanGeneration && $('check-in-dialog').open){
+     $('scan-guide').hidden=false;$('start-camera').textContent='Camera live · Ready to scan';
+     $('scan-result').textContent='Hold the student’s live QR inside the frame.';
+   }
+ }catch{
+   if(generation===scanGeneration){$('scan-result').textContent='Camera unavailable. Open this HTTPS page directly in your browser, allow camera access, then retry.';$('scan-result').className='scan-error';$('start-camera').disabled=false;$('start-camera').textContent='Retry camera';}
+ }finally{starting=null;}
+};
 $('export-button').onclick=()=>{
  if(!records.length){toast('No attendance records to export yet.');return;}
  const cell=value=>'"'+String(value).replace(/^[\s]*[=+@-]|^[\t\r\n]/,"'$&").replace(/"/g,'""')+'"';

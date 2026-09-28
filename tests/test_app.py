@@ -31,6 +31,15 @@ class AttendanceTests(unittest.TestCase):
         self.assertIn(b'Your classroom', self.teacher.get('/admin/dashboard').data)
         self.assertIn(b'Soham Dharap', self.student.get('/student').data)
 
+    def test_camera_only_scanner_markup(self):
+        page = self.teacher.get("/admin/dashboard").data
+        self.assertIn(b'id="start-camera"', page)
+        self.assertIn(b'id="scan-confirmation"', page)
+        self.assertIn(b'id="scan-next"', page)
+        self.assertNotIn(b'id="qr-file"', page)
+        self.assertNotIn(b'id="scan-token"', page)
+        self.assertNotIn(b'type="file"', page)
+
     def test_teacher_and_student_authorization(self):
         for client in (self.student, self.guest):
             for path in ('/api/ledger', '/api/students', '/api/class'):
