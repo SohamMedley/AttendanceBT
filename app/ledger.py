@@ -1,27 +1,10 @@
 """
-The attendance ledger: the single place where all the pieces meet.
+The live layer: sessions, attendance marking, sealing and anchoring.
 
-Flow of a single roll-call::
-
-    faculty opens session
-        -> server generates a random session secret + rotating QR
-    student scans QR
-        -> POST /api/attendance/mark  (token + roll number)
-    ledger.mark_attendance()
-        1. session must be OPEN
-        2. QR token must be signed, fresh and for THIS session
-        3. student must exist, be active, and belong to this division
-        4. anti-abuse: rate limits, duplicate check, shared-device check
-        5. status -> PRESENT (within grace) or LATE
-        6. build a transaction and sign it with the student's key
-        7. append to the mempool; seal a block when the batch fills
-        8. write the query index and return a receipt with the Merkle proof
-    faculty closes session
-        -> pending transactions are sealed into one block, the block hash is
-           returned, and the block becomes an anchoring candidate
-
-Every rejection returns a *stable error code* so the UI can show a precise
-message instead of a generic failure.
+``Ledger`` is the entry point for everything that changes state -- opening a
+roll call, accepting a scan, sealing a block, running a verification. The
+anchor service publishes Merkle roots to an external ledger, and ``Services``
+wires the whole application together with the storage backend and key store.
 """
 
 from __future__ import annotations
@@ -29,24 +12,55 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from ..blockchain import proof_of_work as pow_module
-from ..blockchain.chain import Blockchain
-from ..blockchain.merkle import merkle_root as compute_merkle_root
-from ..blockchain.transaction import (
-    STATUS_ABSENT,
-    STATUS_LATE,
-    STATUS_MANUAL,
-    STATUS_PRESENT,
-    TX_ATTENDANCE,
-    build_attendance_transaction,
-)
-from ..storage import SESSIONS, Store
-from . import qr
-from .identity import KeyStore
-from .repository import Repository
+from .anchoring import build_provider
+from .blockchain.chain import Blockchain, estimate_attempts
+from .blockchain.crypto import merkle_root as compute_merkle_root
+from .blockchain.chain import STATUS_ABSENT, STATUS_LATE, STATUS_MANUAL, STATUS_PRESENT, TX_ATTENDANCE, build_attendance_transaction
+from .blockchain.chain import TX_ATTENDANCE, build_anchor_transaction
+from .config import AppConfig, settings
+from . import services
+from . import services as qr
+from .services import INSTITUTION_OWNER_ID, Identity, KeyStore, ensure_institution_identity
+from .services import MU_MIN_ATTENDANCE, dashboard_stats, defaulter_list, export_rows, student_report, student_subject_summary, subject_summary
+from .services import QRToken, QRTokenError, issue_token, verify_token
+from .services import Repository
+from .services import scan as scan_anomalies
+from .storage import SESSIONS, Store
+from .storage import get_store
+
+
+# ============================================================================
+# The ledger (sessions, marking, sealing)
+# ============================================================================
+#
+# The attendance ledger: the single place where all the pieces meet.
+#
+# Flow of a single roll-call::
+#
+#     faculty opens session
+#         -> server generates a random session secret + rotating QR
+#     student scans QR
+#         -> POST /api/attendance/mark  (token + roll number)
+#     ledger.mark_attendance()
+#         1. session must be OPEN
+#         2. QR token must be signed, fresh and for THIS session
+#         3. student must exist, be active, and belong to this division
+#         4. anti-abuse: rate limits, duplicate check, shared-device check
+#         5. status -> PRESENT (within grace) or LATE
+#         6. build a transaction and sign it with the student's key
+#         7. append to the mempool; seal a block when the batch fills
+#         8. write the query index and return a receipt with the Merkle proof
+#     faculty closes session
+#         -> pending transactions are sealed into one block, the block hash is
+#            returned, and the block becomes an anchoring candidate
+#
+# Every rejection returns a *stable error code* so the UI can show a precise
+# message instead of a generic failure.
 
 log = logging.getLogger("bcoe.ledger")
 
@@ -632,7 +646,7 @@ class Ledger:
         transaction.sender_pubkey = public_key
         transaction.signature = signature
         transaction.tx_id = transaction.compute_id()
-        if not ecdsa.verify(public_key, transaction.signing_bytes(), signature):
+        if not ecdsa.verify_signature(public_key, transaction.signing_bytes(), signature):
             raise LedgerError(
                 "The signature on this transaction does not verify",
                 "BAD_SIGNATURE",
@@ -929,8 +943,413 @@ class Ledger:
                 else None
             ),
             "auto_seal": self.chain.auto_seal,
-            "expected_attempts": pow_module.estimate_attempts(difficulty),
+            "expected_attempts": estimate_attempts(difficulty),
         }
 
 
-__all__ = ["Ledger", "LedgerError", "MarkResult"]
+# ============================================================================
+# Anchor service (publishing Merkle roots)
+# ============================================================================
+#
+# Anchor service -- decides *what* to anchor and records the proof.
+#
+# Two roots are involved, and conflating them is a common mistake:
+#
+# ``records_root``
+#     The Merkle root of every attendance transaction sealed since the previous
+#     anchor. This is the value that actually goes to the public ledger, and it is
+#     what makes "these exact records existed at this moment" provable.
+#
+# ``anchor_tx_id``
+#     The hash of the anchor transaction that we write into *our own* chain. That
+#     transaction's payload contains ``records_root`` plus the block range and a
+#     link to the previous anchor root, so our chain carries an auditable record
+#     of every public commitment.
+#
+# The anchor chain (``previous_anchor_root``) is what prevents an attacker from
+# quietly *deleting* an inconvenient anchor: anchors form a hash-linked chain of
+# their own, and each one is committed to a block of the main chain.
+
+  # noqa: F401  (re-exported types)
+
+
+
+class AnchorService:
+    """Creates anchor transactions and submits roots to the configured provider."""
+
+    def __init__(self, config, repository: Repository, ledger: Ledger, keystore: KeyStore) -> None:
+        self.config = config
+        self.repo = repository
+        self.ledger = ledger
+        self.keystore = keystore
+        self.provider = build_provider(config)
+
+    # ------------------------------------------------------------------
+    def _attendance_tx_ids(self, from_block: int, to_block: int) -> list[str]:
+        """Attendance transaction ids inside a block range, in chain order.
+
+        Order matters: the Merkle root is only reproducible if both the anchoring
+        and the verifying side walk the chain the same way.
+        """
+        tx_ids: list[str] = []
+        for block in self.ledger.chain.chain:
+            if from_block <= block.index <= to_block:
+                tx_ids.extend(
+                    tx.tx_id for tx in block.transactions if tx.tx_type == TX_ATTENDANCE
+                )
+        return tx_ids
+
+    def _pending_range(self) -> tuple[int, int, list[str]]:
+        """Block range and transaction ids sealed since the last anchor."""
+        latest = self.repo.latest_anchor()
+        from_block = int(latest.get("to_block", 0)) + 1 if latest else 1
+        to_block = self.ledger.chain.head.index
+        return from_block, to_block, self._attendance_tx_ids(from_block, to_block)
+
+    # ------------------------------------------------------------------
+    def anchor_now(self, *, actor: str = "faculty", note: str = "") -> dict[str, Any]:
+        """Seal pending records, publish the root, and store the proof."""
+        institution = ensure_institution_identity(self.keystore)
+
+        from_block, to_block, tx_ids = self._pending_range()
+        latest = self.repo.latest_anchor()
+        previous_root = latest.get("merkle_root") if latest else None
+
+        # Two modes, both fully reproducible by `verify_anchor`:
+        #
+        # INCREMENTAL  a range with new records -> root over exactly those records
+        # CUMULATIVE   nothing new since the last anchor -> re-commit to *every*
+        #              attendance record on the chain. Still a meaningful public
+        #              commitment, and still independently verifiable, which a
+        #              "root of whatever the head block happens to be" would not be.
+        if tx_ids:
+            mode = "INCREMENTAL"
+            records_root = compute_merkle_root(tx_ids)
+        else:
+            mode = "CUMULATIVE"
+            from_block = 1
+            to_block = self.ledger.chain.head.index
+            tx_ids = self._attendance_tx_ids(1, to_block)
+            records_root = compute_merkle_root(tx_ids)
+            note = note or (
+                "No new attendance records since the last anchor; re-committing to "
+                "every record on the chain"
+            )
+        anchor_id = (
+            f"ANC-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+        )
+        created_at = time.time()
+
+        # -- 1. write the anchor transaction into our own chain ---------
+        transaction = build_anchor_transaction(
+            anchor_id=anchor_id,
+            merkle_root=records_root,
+            previous_anchor_root=previous_root,
+            from_block=from_block,
+            to_block=max(to_block, from_block - 1),
+            tx_count=len(tx_ids),
+            created_at=created_at,
+            chain_name="BCOE-ATTENDANCE-CHAIN",
+        )
+        transaction.payload["note"] = note
+        transaction.payload["provider"] = self.provider.name
+        transaction.sender_pubkey = institution.public_key
+        transaction.sign(institution.private_key)
+        transaction.tx_id = transaction.compute_id()
+
+        accepted, reason = self.ledger.chain.add_transaction(transaction)
+        if not accepted:
+            raise LedgerError(f"Anchor transaction rejected: {reason}", "ANCHOR_REJECTED", 409)
+
+        # Sealed immediately, regardless of difficulty, so the anchor is on-chain
+        # before we hand the root to an external provider.
+        seal_block = self.ledger.chain.mine_pending(
+            note=f"Anchor checkpoint {anchor_id}", miner=institution.address
+        )
+        if seal_block is not None:
+            self.ledger.persist_block(seal_block)
+
+        # -- 2. publish the root to the chosen provider ----------------
+        receipt = self.provider.submit(
+            records_root,
+            {
+                "anchor_id": anchor_id,
+                "previous_anchor_root": previous_root,
+                "block_index": seal_block.index if seal_block else None,
+                "created_at": created_at,
+                "tx_count": len(tx_ids),
+            },
+        )
+
+        record = {
+            **receipt.to_dict(),
+            "previous_anchor_root": previous_root,
+            "mode": mode,
+            "from_block": from_block,
+            "to_block": max(to_block, from_block - 1),
+            "records_anchored": len(tx_ids),
+            "anchor_tx_id": transaction.tx_id,
+            "anchor_block_index": seal_block.index if seal_block else None,
+            "anchor_block_hash": seal_block.hash if seal_block else None,
+            "institution_address": institution.address,
+            "note": note,
+        }
+        self.repo.save_anchor(record)
+        self.repo.log_audit(
+            "ANCHOR_CREATED",
+            actor=actor,
+            target=anchor_id,
+            detail={
+                "provider": receipt.provider,
+                "status": receipt.status,
+                "root": records_root,
+                "records": len(tx_ids),
+                "independent": receipt.independent,
+            },
+        )
+        return record
+
+    # ------------------------------------------------------------------
+    def verify_anchor(self, anchor_id: str) -> dict[str, Any]:
+        """Re-check an anchor against the chain, without trusting the stored record."""
+        anchor = self.repo.get_anchor(anchor_id)
+        if anchor is None:
+            raise LedgerError(f"Unknown anchor {anchor_id}", "UNKNOWN_ANCHOR", 404)
+
+        from_block = int(anchor.get("from_block", 1))
+        to_block = int(anchor.get("to_block", 0))
+        stored_root = anchor.get("merkle_root")
+
+        # The committed set is exactly the attendance records in the stored block
+        # range -- re-derive them from the chain in the same order, so the root is
+        # genuinely recomputed rather than read back from the anchor record.
+        tx_ids = self._attendance_tx_ids(from_block, to_block)
+        recomputed = compute_merkle_root(tx_ids) if tx_ids else None
+
+        found = self.ledger.chain.find_transaction(anchor.get("anchor_tx_id", ""))
+        signature_ok = bool(found and found[1].verify_signature())
+
+        checks = [
+            {
+                "check": "Merkle root recomputed from the chain",
+                "expected": stored_root,
+                "actual": recomputed,
+                "passed": (recomputed == stored_root) if recomputed else None,
+                "detail": (
+                    f"{len(tx_ids)} attendance records in blocks "
+                    f"{from_block}–{to_block} ({anchor.get('mode', 'INCREMENTAL')} anchor)"
+                ),
+            },
+            {
+                "check": "Anchor transaction found on the chain",
+                "expected": anchor.get("anchor_tx_id"),
+                "actual": found[1].tx_id if found else None,
+                "passed": bool(found),
+            },
+            {
+                "check": "Anchor signed by the institutional key",
+                "expected": anchor.get("institution_address"),
+                "actual": anchor.get("institution_address"),
+                "passed": signature_ok,
+            },
+        ]
+        return {
+            "anchor_id": anchor_id,
+            "provider": anchor.get("provider"),
+            "status": anchor.get("status"),
+            "independent": anchor.get("independent"),
+            "records_anchored": anchor.get("records_anchored"),
+            "merkle_root": anchor.get("merkle_root"),
+            "checks": checks,
+            "verified": all(check["passed"] for check in checks if check["passed"] is not None),
+            "caveat": (
+                "Offline verification proves the root matches our chain. Proving it "
+                "was published externally requires the provider's own receipt "
+                "(see the stored proof or the explorer link)."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    def pending_summary(self) -> dict[str, Any]:
+        """How much is waiting to be anchored -- shown on the Anchoring page."""
+        from_block, to_block, tx_ids = self._pending_range()
+        latest = self.repo.latest_anchor()
+        return {
+            "provider": self.provider.name,
+            "provider_info": self.provider.describe(),
+            "pending_records": len(tx_ids),
+            "from_block": from_block,
+            "to_block": to_block,
+            "pending_root": compute_merkle_root(tx_ids) if tx_ids else None,
+            "last_anchor": latest,
+            "anchor_count": len(self.repo.list_anchors()),
+            "auto_anchor_enabled": False,
+            "head_hash": self.ledger.chain.head.hash,
+        }
+
+
+# ============================================================================
+# The service facade
+# ============================================================================
+#
+# Service container -- one place that wires the application together.
+#
+# Layer map (bottom to top)::
+#
+#     storage          -> documents (local JSON | Firestore)
+#     repository       -> domain queries over those documents
+#     blockchain       -> blocks, transactions, Merkle trees, Proof-of-Work
+#     identity         -> secp256k1 key pairs (custodial | non-custodial)
+#     services         -> ledger, analytics, anomaly detection, anchoring
+#     api              -> HTTP endpoints
+#     templates/static -> the UI
+#
+# Constructing :class:`Services` once and sharing it keeps the Flask app thin and
+# makes the whole system testable without a browser.
+
+
+class Services:
+    """Owns every long-lived object the application needs."""
+
+    def __init__(
+        self,
+        config: AppConfig | None = None,
+        *,
+        keystore_path: str | None = None,
+        store=None,
+    ) -> None:
+        self.config = config or settings
+        # Tests (and any embedding application) can inject their own store;
+        # otherwise fall back to the process-wide one.
+        self.store = store if store is not None else get_store(self.config)
+        self.repo = Repository(self.store)
+
+        keystore_file = Path(
+            keystore_path
+            or (Path("data") / "keystore" / "keys.json")
+        )
+        self.keystore = KeyStore(keystore_file)
+        self.keystore.load()
+
+        self.ledger = Ledger(self.config, self.store, self.repo, self.keystore)
+        self.anchoring = AnchorService(self.config, self.repo, self.ledger, self.keystore)
+
+        # The college's own signing identity must always exist.
+        self.institution = ensure_institution_identity(self.keystore)
+
+    # ------------------------------------------------------------------
+    # Register helpers
+    # ------------------------------------------------------------------
+    def register_keys_for_students(self, students: list[dict[str, Any]]) -> int:
+        """Make sure every student in the register has a signing key.
+
+        In custodial mode the key is generated here; if a student already has a
+        public key recorded (non-custodial), we leave it alone.
+        """
+        created = 0
+        for student in students:
+            roll = student["roll_no"]
+            if self.keystore.get(roll) is None:
+                self.keystore.create(roll, role="student")
+                created += 1
+        if created:
+            self.keystore.save()
+        return created
+
+    def register_keys_for_faculty(self, faculty: list[dict[str, Any]]) -> int:
+        created = 0
+        for record in faculty:
+            faculty_id = record["faculty_id"]
+            if self.keystore.get(faculty_id) is None:
+                self.keystore.create(faculty_id, role="faculty")
+                created += 1
+        if created:
+            self.keystore.save()
+        return created
+
+    def is_seeded(self) -> bool:
+        return self.repo.student_count() > 0
+
+    # ------------------------------------------------------------------
+    # Convenience queries used by several blueprints
+    # ------------------------------------------------------------------
+    def students(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.repo.list_students(**kwargs)
+
+    def subjects_for_year(self, year: str) -> list[dict[str, Any]]:
+        return [s for s in self.repo.list_subjects() if s.get("year") == year]
+
+    def sessions(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.repo.list_sessions(**kwargs)
+
+    def attendance(self) -> list[dict[str, Any]]:
+        return self.repo.attendance_all()
+
+    def chain_stats(self) -> dict[str, Any]:
+        stats = self.ledger.chain.stats()
+        report = self.ledger.chain.last_validation
+        stats["last_report_valid"] = report.valid if report else True
+        stats["storage_backend"] = self.store.name
+        stats["difficulty"] = self.ledger.chain.difficulty
+        return stats
+
+    def dashboard(self) -> dict[str, Any]:
+        return dashboard_stats(
+            students=self.repo.list_students(),
+            subjects=self.repo.list_subjects(),
+            sessions=self.repo.list_sessions(),
+            attendance=self.repo.attendance_all(),
+            chain_stats=self.chain_stats(),
+            anchors=self.repo.list_anchors(limit=10),
+        )
+
+    def status(self) -> dict[str, Any]:
+        """System status for the settings screen and the UI badge."""
+        from .storage import store_report
+
+        return {
+            "storage": {
+                "backend": self.store.name,
+                "report": store_report(),
+                "health": self._safe_health(),
+            },
+            "chain": self.chain_stats(),
+            "ledger": {
+                "keystore_size": len(self.keystore),
+                "institution_address": self.institution.address,
+                "institution_public_key": self.institution.public_key,
+            },
+            "anchor": self.anchoring.pending_summary(),
+            "register": {
+                "students": self.repo.student_count(),
+                "faculty": len(self.repo.list_faculty()),
+                "subjects": len(self.repo.list_subjects()),
+                "sessions": len(self.repo.list_sessions()),
+                "attendance_records": len(self.repo.attendance_all()),
+                "blocks": self.repo.block_count(),
+                "anchors": len(self.repo.list_anchors()),
+            },
+            "config": self.config.as_dict(),
+        }
+
+    def _safe_health(self) -> dict[str, Any]:
+        try:
+            return self.store.health()
+        except Exception as exc:  # pragma: no cover - health must never raise
+            return {"ok": False, "error": str(exc), "backend": self.store.name}
+
+
+_services: Services | None = None
+
+
+def get_services(config: AppConfig | None = None) -> Services:
+    """Process-wide :class:`Services` instance."""
+    global _services
+    if _services is None:
+        _services = Services(config)
+    return _services
+
+
+def reset_services() -> None:
+    global _services
+    _services = None

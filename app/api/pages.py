@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for
 
-from ..services import Services
+from ..ledger import Services
 
 bp = Blueprint("pages", __name__)
 _services: Services | None = None
@@ -123,7 +123,7 @@ def student_view(roll_no: str):
     if student is None:
         abort(404)
 
-    from ..services.analytics import student_report
+    from ..services import student_report
 
     report = student_report(
         student=student,
@@ -222,7 +222,7 @@ def anchors_page():
 @bp.get("/audit")
 def audit_page():
     services = _svc()
-    from ..services.anomaly import scan as scan_anomalies
+    from ..services import scan as scan_anomalies
 
     return render_template(
         "audit.html",

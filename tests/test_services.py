@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from app.services import analytics
-from app.services.qr import (
+from app.services import (
     QRTokenError,
     current_slot,
     issue_token,
@@ -151,7 +151,7 @@ class TestStorage:
 
     def test_data_survives_a_process_restart(self, config, tmp_path):
         """The bug this guards against: reopening the file must not lose everything."""
-        from app.services import Services
+        from app.ledger import Services
         from app.storage import LocalStore
 
         path = tmp_path / "restart.json"
@@ -215,7 +215,7 @@ class TestIdentity:
 
         identity = services.keystore.create("BCOE23AI099", role="student")
         message = b"prove it is me"
-        signature = ecdsa.sign(identity.private_key, message)
+        signature = ecdsa.sign_message(identity.private_key, message)
         assert services.keystore.verify_ownership(
             "BCOE23AI099", identity.public_key, message, signature
         )
@@ -229,7 +229,7 @@ class TestIdentity:
         assert identity.private_key not in str(public)
 
     def test_institution_identity_is_stable(self, services):
-        from app.services.identity import ensure_institution_identity
+        from app.services import ensure_institution_identity
 
         first = ensure_institution_identity(services.keystore)
         second = ensure_institution_identity(services.keystore)
@@ -268,7 +268,7 @@ class TestAnalytics:
 
     # -- lectures needed to recover -------------------------------------
     def test_lectures_to_recover_solves_the_75_percent_rule(self):
-        from app.services.analytics import _lectures_to_recover
+        from app.services import _lectures_to_recover
 
         # (attended + x) / (held + x) >= 0.75, smallest integer x.
         # None means the target is already met; 0 means no lectures were held.
@@ -282,7 +282,7 @@ class TestAnalytics:
         assert _lectures_to_recover(attended=7, held=10) == 2
 
     def test_recovery_actually_restores_eligibility(self):
-        from app.services.analytics import _lectures_to_recover
+        from app.services import _lectures_to_recover
 
         for attended in range(0, 10):
             held = 10
@@ -296,7 +296,7 @@ class TestAnalytics:
 
     # -- which statuses count -------------------------------------------
     def test_present_and_late_count_as_attended(self):
-        from app.services.analytics import _counts_as_attended
+        from app.services import _counts_as_attended
 
         assert _counts_as_attended({"status": "PRESENT"})
         assert _counts_as_attended({"status": "LATE"})
@@ -304,7 +304,7 @@ class TestAnalytics:
 
     def test_manual_only_counts_when_it_says_present(self):
         """A manual record has to record what it actually decided."""
-        from app.services.analytics import _counts_as_attended
+        from app.services import _counts_as_attended
 
         assert _counts_as_attended({"status": "MANUAL", "manual_status": "PRESENT"})
         assert _counts_as_attended({"status": "MANUAL", "manual_status": "LATE"})
@@ -313,7 +313,7 @@ class TestAnalytics:
 
     # -- per-subject summary --------------------------------------------
     def test_student_subject_summary(self):
-        from app.services.analytics import student_subject_summary
+        from app.services import student_subject_summary
 
         student = {"roll_no": "BCOE23AI001", "name": "Ansh",
                    "year": "BE", "division": "A"}
@@ -338,7 +338,7 @@ class TestAnalytics:
         assert summary["lectures_to_recover"] == 4   # (2+4)/(4+4) = 75%
 
     def test_attendance_from_another_subject_is_not_counted(self):
-        from app.services.analytics import student_subject_summary
+        from app.services import student_subject_summary
 
         student = {"roll_no": "BCOE23AI001", "year": "BE", "division": "A"}
         summary = student_subject_summary(
@@ -350,7 +350,7 @@ class TestAnalytics:
         assert summary["attended"] == 0
 
     def test_a_student_who_never_attends_is_ineligible(self):
-        from app.services.analytics import student_subject_summary
+        from app.services import student_subject_summary
 
         summary = student_subject_summary(
             student={"roll_no": "BCOE23AI009", "year": "BE", "division": "A"},
@@ -364,7 +364,7 @@ class TestAnalytics:
 
     # -- defaulter list --------------------------------------------------
     def test_defaulter_list_separates_good_from_poor(self):
-        from app.services.analytics import defaulter_list
+        from app.services import defaulter_list
 
         students = [
             {"roll_no": "BCOE23AI001", "name": "Good", "year": "BE", "division": "A"},
@@ -388,7 +388,7 @@ class TestAnalytics:
         assert poor["shortfall"] == 65.0
 
     def test_defaulter_list_is_empty_when_everyone_is_above_the_bar(self):
-        from app.services.analytics import defaulter_list
+        from app.services import defaulter_list
 
         students = [{"roll_no": "BCOE23AI001", "year": "BE", "division": "A"}]
         attendance = [self._record("BCOE23AI001", "PRESENT", f"L{i}") for i in range(10)]
@@ -400,7 +400,7 @@ class TestAnalytics:
         ) == []
 
     def test_empty_register_does_not_crash(self):
-        from app.services.analytics import defaulter_list
+        from app.services import defaulter_list
 
         assert defaulter_list(
             students=[], subjects=[], sessions=[], attendance=[]
@@ -412,7 +412,7 @@ class TestAnalytics:
         of records would always report 100% attendance -- a metric that measures
         nothing. The denominator must be lectures held x students enrolled.
         """
-        from app.services.analytics import dashboard_stats
+        from app.services import dashboard_stats
 
         students = [
             {"roll_no": "BCOE23AI001", "year": "BE", "division": "A"},
@@ -431,7 +431,7 @@ class TestAnalytics:
         assert data["average_attendance_percentage"] == 25.0   # 10 of 40
 
     def test_turnout_with_no_sessions_is_zero_not_a_crash(self):
-        from app.services.analytics import dashboard_stats
+        from app.services import dashboard_stats
 
         data = dashboard_stats(
             students=[{"roll_no": "BCOE23AI001", "year": "BE", "division": "A"}],
@@ -441,7 +441,7 @@ class TestAnalytics:
 
     # -- CSV export ------------------------------------------------------
     def test_export_rows_are_one_line_per_student_per_subject(self):
-        from app.services.analytics import export_rows
+        from app.services import export_rows
 
         rows = export_rows(
             students=[

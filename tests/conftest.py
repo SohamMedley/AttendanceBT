@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.config import AppConfig  # noqa: E402
-from app.services import Services  # noqa: E402
+from app.ledger import Services  # noqa: E402
 from app.storage import LocalStore  # noqa: E402
 
 #: Difficulty 1 keeps Proof-of-Work effectively instant in tests. The consensus

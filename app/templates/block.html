@@ -4,101 +4,159 @@
 
 {% block topbar_actions %}
   <a class="btn btn-sm" href="{{ url_for('pages.explorer') }}">&larr; Explorer</a>
-  {% if block.index > 0 %}<a class="btn btn-sm" href="{{ url_for('pages.block_view', index=block.index - 1) }}">Parent #{{ block.index - 1 }}</a>{% endif %}
+  {% if block.index > 0 %}
+    <a class="btn btn-sm" href="{{ url_for('pages.block_view', index=block.index - 1) }}">Parent #{{ block.index - 1 }}</a>
+  {% endif %}
+
 {% endblock %}
 
 {% block content %}
 
 {% if block.mining_stats %}
-<div class="grid grid-4" style="margin-bottom:16px;">
-  <div class="stat chain"><div class="label">Nonce</div><div class="value">{{ block.nonce }}</div><div class="foot">{{ block.mining_stats.attempts | thousands }} hash attempts</div></div>
-  <div class="stat"><div class="label">Mining time</div><div class="value" style="font-size:20px;">{{ block.mining_stats.elapsed_seconds }}s</div><div class="foot">{{ block.mining_stats.hash_rate | thousands }} H/s</div></div>
-  <div class="stat"><div class="label">Difficulty</div><div class="value">{{ block.difficulty }}</div><div class="foot">leading zeros required</div></div>
-  <div class="stat"><div class="label">Integrity</div>
-    <div class="value" style="font-size:15px;line-height:1.7;margin-top:8px;">
-      {% if block.integrity.hash_valid %}<span class="badge badge-ok">hash ok</span>{% else %}<span class="badge badge-bad">hash bad</span>{% endif %}<br>
-      {% if block.integrity.merkle_valid %}<span class="badge badge-ok">merkle ok</span>{% else %}<span class="badge badge-bad">merkle bad</span>{% endif %}<br>
-      {% if block.integrity.proof_of_work_valid %}<span class="badge badge-ok">PoW ok</span>{% else %}<span class="badge badge-bad">PoW bad</span>{% endif %}
+<div class="grid cols-4 stagger">
+  <div class="stat">
+    <div class="label">Nonce</div>
+    <div class="value" data-count="{{ block.nonce }}">0</div>
+    <div class="foot">{{ block.mining_stats.attempts | thousands }} hash attempts</div>
+  </div>
+  <div class="stat">
+    <div class="label">Mining time</div>
+    <div class="value" data-count="{{ block.mining_stats.elapsed_seconds }}" data-decimals="2" data-suffix="s">0</div>
+    <div class="foot">{{ block.mining_stats.hash_rate | thousands }} H/s</div>
+  </div>
+  <div class="stat">
+    <div class="label">Difficulty</div>
+    <div class="value" data-count="{{ block.difficulty }}">0</div>
+    <div class="foot">leading zero bits required</div>
+  </div>
+  <div class="stat {{ 'ok' if block.integrity.hash_valid and block.integrity.merkle_valid and block.integrity.proof_of_work_valid else 'danger' }}">
+    <div class="label">Integrity</div>
+    <div class="value" style="font-size:16px;line-height:1.9;margin-top:6px;">
+      <span class="badge {{ 'ok' if block.integrity.hash_valid else 'danger' }} dot">hash</span>
+      <span class="badge {{ 'ok' if block.integrity.merkle_valid else 'danger' }} dot">merkle</span>
+      <span class="badge {{ 'ok' if block.integrity.proof_of_work_valid else 'danger' }} dot">PoW</span>
     </div>
+    <div class="foot">all three re-derived now</div>
   </div>
 </div>
 {% endif %}
 
-<div class="grid grid-2">
-  <div class="card">
-    <div class="card-head"><h2>Block header</h2></div>
+<div class="grid side">
+  <section class="card reveal">
+    <div class="card-head">
+      <div class="card-title"><span class="ico">&#9636;</span> Block header</div>
+      <span class="badge brand mono">#{{ block.index }}</span>
+    </div>
     <dl class="dl">
-      <dt>Version</dt><dd>{{ block.version }}</dd>
-      <dt>Index</dt><dd>{{ block.index }}</dd>
-      <dt>Timestamp</dt><dd>{{ block.timestamp | datetime }} <span class="small">({{ block.timestamp }})</span></dd>
+      <dt>Version</dt><dd class="mono">{{ block.version }}</dd>
+      <dt>Index</dt><dd class="mono">{{ block.index }}</dd>
+      <dt>Timestamp</dt><dd>{{ block.timestamp | datetime }} <span class="hint">({{ block.timestamp }})</span></dd>
       <dt>Previous hash</dt>
-      <dd>{% if block.index > 0 %}<a class="hash" href="{{ url_for('pages.block_view', index=block.index - 1) }}">{{ block.prev_hash }}</a>
-          {% else %}<span class="hash">{{ block.prev_hash }}</span>{% endif %}</dd>
-      <dt>Merkle root</dt><dd><span class="hash copy-hash" data-copy="{{ block.merkle_root }}">{{ block.merkle_root }}</span></dd>
-      <dt>Difficulty</dt><dd>{{ block.difficulty }}</dd>
+      <dd>
+        {% if block.index > 0 %}
+          <a class="mono" href="{{ url_for('pages.block_view', index=block.index - 1) }}">{{ block.prev_hash }}</a>
+        {% else %}
+          <span class="mono">{{ block.prev_hash }}</span> <span class="hint">genesis</span>
+        {% endif %}
+      </dd>
+      <dt>Merkle root</dt>
+      <dd><span class="hash-chip" data-copy="{{ block.merkle_root }}" data-copy-label="Merkle root copied">
+        {{ block.merkle_root | short_hash(20, 12) }}<span class="copy">copy</span></span></dd>
+      <dt>Difficulty</dt><dd class="mono">{{ block.difficulty }}</dd>
       <dt>Nonce</dt><dd class="mono">{{ block.nonce }}</dd>
       <dt>Miner</dt><dd class="mono">{{ block.miner }}</dd>
-      <dt>Block hash</dt><dd><span class="hash copy-hash" data-copy="{{ block.hash }}">{{ block.hash }}</span></dd>
+      <dt>Block hash</dt>
+      <dd><span class="hash-chip" data-copy="{{ block.hash }}" data-copy-label="Block hash copied">
+        {{ block.hash | short_hash(20, 12) }}<span class="copy">copy</span></span></dd>
     </dl>
-    {% if block.note %}<div class="divider"></div><p class="small">{{ block.note }}</p>{% endif %}
-  </div>
+    {% if block.note %}
+      <hr class="divider">
+      <p class="small muted" style="margin:0;">{{ block.note }}</p>
+    {% endif %}
+  </section>
 
-  <div class="card">
+  <section class="card reveal" style="--i:1;">
     <div class="card-head">
-      <h2>Merkle tree</h2>
-      <span class="hint">{{ block.merkle_root | short_hash(10, 6) }}</span>
+      <div>
+        <div class="card-title"><span class="ico">&#9939;</span> Merkle tree</div>
+        <div class="card-sub">One root commits to every record below it.</div>
+      </div>
     </div>
-    <p class="small" style="margin-bottom:10px;">
-      Every transaction hashes into a leaf. Pairs combine upward until a single
-      32-byte root remains — that one value sits in the block header, so changing
-      <em>any</em> record changes the root and therefore the block hash.
+    <p class="small muted">
+      Transactions hash into leaves. Pairs combine upward until a single 32-byte
+      root remains, and that root sits in the block header &mdash; so changing
+      <em>any</em> record changes the root, and therefore the block hash.
     </p>
-    <div class="scroll-y" style="max-height:330px;">
+    <div class="scroll-y max-h-320">
       {% for level in merkle.levels | reverse %}
-        <div style="margin-bottom:9px;">
-          <div class="small" style="margin-bottom:4px;font-weight:600;">
-            {{ 'Root' if loop.first else ('Leaves (transactions)' if loop.last else 'Level ' ~ (merkle.levels | length - loop.index)) }}
-            <span style="color:var(--text-faint);">— {{ level | length }} node{{ '' if level | length == 1 else 's' }}</span>
+        <div class="merkle-level">
+          <div class="lvl-label">
+            {% if loop.first %}Root
+            {% elif loop.last %}Leaves &mdash; transactions
+            {% else %}Level {{ merkle.levels | length - loop.index }}{% endif %}
+            <span class="hint">&middot; {{ level | length }} node{{ '' if level | length == 1 else 's' }}</span>
           </div>
-          <div class="row" style="gap:5px;">
-            {% for node in level[:14] %}
-              <span class="hash" style="font-size:10px;" title="{{ node }}">
-                {% if loop.last and level | length == 1 %}{{ node }}{% else %}{{ node[:12] }}{% endif %}
+          <div class="nodes">
+            {% for node in level[:16] %}
+              <span class="node {% if loop.last and level | length == 1 %}root{% endif %}" title="{{ node }}">
+                {{ node if level | length == 1 else node[:12] }}
               </span>
             {% endfor %}
-            {% if level | length > 14 %}<span class="small">+{{ level | length - 14 }} more</span>{% endif %}
+            {% if level | length > 16 %}<span class="node">+{{ level | length - 16 }} more</span>{% endif %}
           </div>
         </div>
       {% endfor %}
     </div>
-  </div>
+  </section>
 </div>
 
-<div class="card" style="margin-top:16px;">
+<section class="card reveal">
   <div class="card-head">
-    <h2>Transactions in this block</h2>
-    <span class="hint">{{ block.tx_count }} record(s)</span>
+    <div>
+      <div class="card-title"><span class="ico">&#9776;</span> Transactions in this block</div>
+      <div class="card-sub">{{ block.tx_count }} attendance record(s) sealed together.</div>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Roll no.</th><th>Student</th><th>Subject</th><th>Status</th><th>Marked at</th><th>Device</th><th>Transaction id</th></tr>
+        <tr>
+          <th>Roll no.</th><th>Student</th><th>Subject</th><th>Status</th>
+          <th>Marked at</th><th>Device</th><th>Transaction</th>
+        </tr>
       </thead>
       <tbody>
         {% for tx in block.transactions %}
         <tr>
           <td class="mono" style="font-size:11.5px;">{{ tx.payload.student_roll }}</td>
-          <td>{{ tx.payload.student_name }}</td>
+          <td>
+            <span class="toolbar" style="gap:9px;">
+              <span class="hash-avatar" data-avatar="{{ tx.payload.student_roll }}"></span>
+              {{ tx.payload.student_name }}
+            </span>
+          </td>
           <td class="mono" style="font-size:11.5px;">{{ tx.payload.subject_code }}</td>
-          <td class="s-{{ tx.payload.status }}">{{ tx.payload.status }}</td>
-          <td class="small">{{ tx.payload.marked_at | datetime }}</td>
-          <td class="small mono">{{ (tx.payload.device_fingerprint or '--') | truncate(18) }}</td>
-          <td><a class="hash" href="{{ url_for('pages.verify_page') }}?tx_id={{ tx.tx_id }}">{{ tx.tx_id | short_hash(10, 6) }}</a></td>
+          <td><span class="badge {{ 'ok' if tx.payload.status == 'PRESENT' else ('warn' if tx.payload.status == 'LATE' else 'danger') }}">
+            {{ tx.payload.status }}</span></td>
+          <td class="small nowrap">{{ tx.payload.marked_at | datetime }}</td>
+          <td class="hint mono">{{ (tx.payload.device_fingerprint or '--') | truncate(18) }}</td>
+          <td>
+            <a class="mono" style="font-size:11.5px;color:var(--brand-2);"
+               href="{{ url_for('pages.verify_page') }}?tx_id={{ tx.tx_id }}">{{ tx.tx_id | short_hash(10, 6) }}</a>
+          </td>
         </tr>
         {% endfor %}
+        {% if not block.transactions %}
+        <tr><td colspan="7">
+          <div class="empty">
+            <div class="glyph">&#9744;</div>
+            <div>No transactions in this block.</div>
+          </div>
+        </td></tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 {% endblock %}

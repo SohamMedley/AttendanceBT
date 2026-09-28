@@ -15,7 +15,7 @@ import logging
 from flask import Flask, jsonify, render_template, request
 
 from .config import AppConfig, load_config
-from .services import Services, get_services
+from .ledger import Services, get_services
 
 __version__ = "1.0.0"
 
@@ -64,34 +64,18 @@ def create_app(config: AppConfig | None = None, services: Services | None = None
 
 # ---------------------------------------------------------------------------
 def _register_blueprints(app: Flask, services: Services) -> None:
-    from .api import (
-        analytics_api,
-        anchoring_api,
-        attendance_api,
-        chain_api,
-        pages,
-        register_api,
-        system_api,
-    )
+    """Wire the service layer into the blueprints, then mount them."""
+    from .api import attendance, chain, pages
 
-    for module in (
-        system_api,
-        register_api,
-        attendance_api,
-        chain_api,
-        analytics_api,
-        anchoring_api,
-        pages,
-    ):
+    # Each blueprint module keeps a module-level reference to the service layer
+    # rather than importing it at module scope, so the app can be created with
+    # any configuration (including a test one) without import-time state.
+    for module in (pages, attendance, chain):
         module.init(services)
 
-    app.register_blueprint(system_api.bp)
-    app.register_blueprint(register_api.bp)
-    app.register_blueprint(attendance_api.bp)
-    app.register_blueprint(chain_api.bp)
-    app.register_blueprint(analytics_api.bp)
-    app.register_blueprint(anchoring_api.bp)
     app.register_blueprint(pages.bp)
+    app.register_blueprint(attendance.bp)
+    app.register_blueprint(chain.bp)
 
 
 def _register_template_helpers(app: Flask, services: Services) -> None:
@@ -189,7 +173,7 @@ def _register_template_helpers(app: Flask, services: Services) -> None:
 
 
 def _register_error_handlers(app: Flask) -> None:
-    from .services.ledger import LedgerError
+    from .ledger import LedgerError
 
     @app.errorhandler(LedgerError)
     def handle_ledger_error(error: LedgerError):

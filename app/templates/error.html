@@ -3,16 +3,20 @@
 {% block subheading %}The request could not be completed{% endblock %}
 
 {% block content %}
-<div style="max-width:640px;margin:0 auto;">
-  <div class="card">
+<div style="max-width:660px;margin:0 auto;">
+  <div class="card reveal">
     <div class="callout bad">
-      <h4><code class="mono">{{ error.code or 'ERROR' }}</code></h4>
+      <h4><code>{{ error.code or 'ERROR' }}</code></h4>
       <p>{{ error.error or error.message or 'An unexpected error occurred.' }}</p>
     </div>
-    <div class="row" style="margin-top:16px;">
+    <div class="toolbar" style="margin-top:18px;">
       <a class="btn btn-primary" href="{{ url_for('pages.home') }}">Back to overview</a>
       <a class="btn" href="{{ url_for('pages.dashboard') }}">Faculty console</a>
     </div>
+    <p class="tiny muted" style="margin-top:14px;">
+      The ledger itself is unaffected by a failed request. Every sealed block
+      stays exactly as it was.
+    </p>
   </div>
 </div>
 {% endblock %}

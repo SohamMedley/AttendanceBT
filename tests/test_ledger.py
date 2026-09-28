@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from app.services.ledger import LedgerError
+from app.ledger import LedgerError
 
 BE_STUDENT = "BCOE23AI001"
 SUBJECT = "CSDO7022"
@@ -259,7 +259,7 @@ class TestSealing:
         assert "empty" in result["message"].lower()
 
     def test_pending_root_matches_the_mempool(self, seeded, session):
-        from app.blockchain.merkle import merkle_root
+        from app.blockchain.crypto import merkle_root
 
         mark(seeded, session["session_id"], BE_STUDENT)
         expected = merkle_root([tx.tx_id for tx in seeded.ledger.chain.mempool])
@@ -304,7 +304,7 @@ class TestAnchoring:
         return seeded
 
     def test_anchor_commits_to_the_attendance_records(self, anchored_setup):
-        from app.blockchain.merkle import merkle_root
+        from app.blockchain.crypto import merkle_root
 
         anchor = anchored_setup.anchoring.anchor_now(note="test")
         tx_ids = [
@@ -370,7 +370,7 @@ class TestAnchoring:
 # ---------------------------------------------------------------------------
 class TestAnomalyDetection:
     def test_shared_device_is_reported(self, seeded, session):
-        from app.services.anomaly import scan
+        from app.services import scan
 
         # Bypass the live SHARED_DEVICE guard so the detector has data to find.
         for index, roll in enumerate((BE_STUDENT, "BCOE23AI002", "BCOE23AI003")):
@@ -389,7 +389,7 @@ class TestAnomalyDetection:
         assert "SHARED_DEVICE" in codes
 
     def test_impossible_overlap_is_reported(self, seeded, session):
-        from app.services.anomaly import scan
+        from app.services import scan
 
         base = 1_790_000_000.0
         second = seeded.ledger.open_session(
@@ -412,7 +412,7 @@ class TestAnomalyDetection:
         assert "IMPOSSIBLE_OVERLAP" in codes
 
     def test_a_clean_dataset_raises_nothing(self, seeded, session):
-        from app.services.anomaly import scan
+        from app.services import scan
 
         for index, roll in enumerate((BE_STUDENT, "BCOE23AI002")):
             seeded.repo.save_attendance(
@@ -429,7 +429,7 @@ class TestAnomalyDetection:
         assert result["alerts"] == []
 
     def test_scan_reports_how_much_it_examined(self, seeded, session):
-        from app.services.anomaly import scan
+        from app.services import scan
 
         mark(seeded, session["session_id"], BE_STUDENT)
         result = scan(attendance=seeded.repo.attendance_all(),

@@ -24,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.config import load_config  # noqa: E402
 from app.seed import build_seed_payload  # noqa: E402
-from app.services import Services  # noqa: E402
-from app.services.ledger import LedgerError  # noqa: E402
+from app.ledger import Services  # noqa: E402
+from app.ledger import LedgerError  # noqa: E402
 
 BANNER = r"""
  ____   ____ ___  _____   _   _ _____ _____ ____  _   _ _____ _____ ____
@@ -122,7 +122,7 @@ def cmd_seed(args: argparse.Namespace) -> int:
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
-    from app.demo import simulate_history
+    from app.seed import simulate_history
 
     services = _services()
     if not services.is_seeded():
@@ -343,7 +343,7 @@ def cmd_firebase_check(args: argparse.Namespace) -> int:
 
 
 def cmd_student(args: argparse.Namespace) -> int:
-    from app.services.analytics import student_report
+    from app.services import student_report
 
     services = _services()
     student = services.repo.get_student(args.roll.upper())
@@ -379,7 +379,7 @@ def cmd_student(args: argparse.Namespace) -> int:
 
 
 def cmd_defaulters(args: argparse.Namespace) -> int:
-    from app.services.analytics import defaulter_list
+    from app.services import defaulter_list
 
     services = _services()
     rows = defaulter_list(
@@ -401,7 +401,7 @@ def cmd_defaulters(args: argparse.Namespace) -> int:
 
 
 def cmd_anomalies(args: argparse.Namespace) -> int:
-    from app.services.anomaly import scan
+    from app.services import scan
 
     services = _services()
     result = scan(
@@ -438,7 +438,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_self_test(args: argparse.Namespace) -> int:
     """Verify the cryptographic primitives against published test vectors."""
     from app.blockchain import ecdsa, keccak
-    from app.blockchain.merkle import merkle_proof, merkle_root, verify_merkle_proof
+    from app.blockchain.crypto import merkle_proof, merkle_root, verify_merkle_proof
 
     _rule("SELF-TEST: CRYPTOGRAPHIC PRIMITIVES")
     failures = 0

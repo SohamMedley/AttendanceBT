@@ -1,83 +1,99 @@
 {% extends "base.html" %}
 {% block heading %}Mark your attendance{% endblock %}
-{% block subheading %}Scan the QR code shown by your faculty member{% endblock %}
+{% block subheading %}Scan the rotating QR code shown by your faculty member{% endblock %}
 
 {% block content %}
-<div style="max-width:640px;margin:0 auto;">
+<div style="max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:var(--gutter);">
 
-  <div class="card" style="margin-bottom:16px;">
+  {# --------------------------------- step 1 -------------------------------- #}
+  <section class="card reveal">
     <div class="card-head">
-      <h2>Step 1 &middot; Scan the code</h2>
-      <span class="badge badge-plain" id="camera-badge">camera idle</span>
+      <div>
+        <div class="card-title"><span class="ico">&#9635;</span> Step 1 &middot; Scan the code</div>
+        <div class="card-sub">Point the camera at the QR code on the projector.</div>
+      </div>
+      <span class="badge" id="camera-badge">camera idle</span>
     </div>
 
-    <div style="position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;max-height:340px;">
-      <video id="video" playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
+    <div class="viewfinder">
+      <video id="video" playsinline muted></video>
       <canvas id="analyzer" style="display:none;"></canvas>
-      <div id="camera-overlay" style="position:absolute;inset:0;display:grid;place-items:center;color:#94a3b8;font-size:13px;">
+      <div class="reticle" aria-hidden="true"></div>
+      <div class="scanline" aria-hidden="true"></div>
+      <div id="camera-overlay"
+           style="position:absolute;inset:0;display:grid;place-items:center;color:#94a3b8;font-size:13px;">
         Camera preview appears here
       </div>
-      <div style="position:absolute;inset:12%;border:2px solid rgba(99,102,241,.75);border-radius:14px;pointer-events:none;"></div>
     </div>
 
-    <div class="row" style="margin-top:12px;">
-      <button class="btn btn-primary btn-sm" id="start-camera">Start camera</button>
-      <button class="btn btn-sm" id="stop-camera">Stop</button>
-      <span class="small">Works on phones and laptops. Camera access needs HTTPS or localhost.</span>
+    <div class="toolbar" style="margin-top:14px;">
+      <button class="btn btn-primary btn-sm" id="start-camera" type="button">Start camera</button>
+      <button class="btn btn-sm" id="stop-camera" type="button">Stop</button>
+      <span class="hint">Works on phones and laptops. Camera access needs HTTPS or localhost.</span>
     </div>
 
-    <div class="divider"></div>
+    <hr class="divider">
 
-    <div class="card-head"><h3>Or enter the code manually</h3></div>
-    <p class="small" style="margin-bottom:10px;">
-      If your camera is not available, ask the faculty member for the token shown under the QR code.
+    <div class="card-title" style="margin-bottom:8px;"><span class="ico">&#9000;</span> Or enter the code manually</div>
+    <p class="small muted" style="margin-bottom:12px;">
+      If your camera is not available, ask the faculty member for the token shown under
+      the QR code.
     </p>
     <div class="field">
       <label for="token-input">Attendance token</label>
-      <input id="token-input" class="mono" placeholder="eyJ2IjoxLCJzIjoiTEVDLS4uLiJ9" value="{{ token }}">
+      <input id="token-input" class="mono" placeholder="eyJ2IjoxLCJzIjoiTEVDLS4uLiJ9" value="{{ token }}" autocomplete="off">
     </div>
-  </div>
+  </section>
 
-  <div class="card">
+  {# --------------------------------- step 2 -------------------------------- #}
+  <section class="card reveal" style="--i:1;">
     <div class="card-head">
-      <h2>Step 2 &middot; Confirm your identity</h2>
+      <div>
+        <div class="card-title"><span class="ico">&#9911;</span> Step 2 &middot; Confirm your identity</div>
+        <div class="card-sub">Your mark is signed with your key before it is sent.</div>
+      </div>
     </div>
 
-    <form id="mark-form">
+    <form id="mark-form" style="display:flex;flex-direction:column;gap:14px;">
       <div class="field">
         <label for="roll-input">Roll number</label>
         <input id="roll-input" placeholder="BCOE23AI001" required autocomplete="off"
-               style="text-transform:uppercase;font-family:var(--mono);">
+               style="text-transform:uppercase;" class="mono">
       </div>
 
-      <div class="callout info" style="margin-bottom:14px;">
+      <div class="callout info">
         <h4>Signing mode</h4>
-        <p style="font-size:12.5px;">
+        <p>
           Your attendance transaction is signed with a <strong>secp256k1</strong> key pair.
           In this deployment the college holds the key for you (custodial mode), which keeps
           the system working on any phone with no setup. See
-          <code class="mono">app/services/identity.py</code> for the non-custodial option,
-          where the key stays on your device.
+          <code>app/services.py</code> for the non-custodial option, where the private key
+          never leaves your device.
         </p>
       </div>
 
-      <button class="btn btn-primary btn-block" type="submit" id="mark-btn">
+      <button class="btn btn-primary btn-block btn-lg" type="submit" id="mark-btn">
         Mark my attendance
       </button>
     </form>
 
-    <div id="result" style="margin-top:16px;display:none;"></div>
-  </div>
+    <div id="result" style="margin-top:18px;display:none;"></div>
+  </section>
 
-  <div class="card" style="margin-top:16px;">
-    <div class="card-head"><h2>Already marked?</h2></div>
-    <p class="small" style="margin-bottom:10px;">Look up any transaction by its id to see the full proof.</p>
-    <div class="row">
-      <input id="lookup-tx" class="mono" placeholder="Transaction id" style="flex:1;min-width:220px;">
-      <button class="btn btn-sm" id="lookup-btn">Verify</button>
+  {# -------------------------------- already? ------------------------------- #}
+  <section class="card reveal" style="--i:2;">
+    <div class="card-head">
+      <div class="card-title"><span class="ico">&#10003;</span> Already marked?</div>
     </div>
-    <div id="lookup-result" style="margin-top:12px;"></div>
-  </div>
+    <p class="small muted" style="margin-bottom:12px;">
+      Look any transaction up by its id to see the full proof.
+    </p>
+    <div class="toolbar">
+      <input id="lookup-tx" class="mono" placeholder="Transaction id" style="flex:1;min-width:220px;">
+      <button class="btn btn-sm" id="lookup-btn" type="button">Verify</button>
+    </div>
+    <div id="lookup-result" style="margin-top:14px;"></div>
+  </section>
 </div>
 {% endblock %}
 
@@ -87,9 +103,11 @@
 let stream = null;
 let scanLoop = null;
 
-/* ------------------------------------------------------------ camera scan */
-document.getElementById("start-camera").addEventListener("click", async () => {
+/* --------------------------------------------------------- camera scanning */
+document.getElementById("start-camera").addEventListener("click", async (event) => {
   const badge = document.getElementById("camera-badge");
+  const button = event.currentTarget;
+  button.disabled = true;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -98,8 +116,8 @@ document.getElementById("start-camera").addEventListener("click", async () => {
     video.srcObject = stream;
     await video.play();
     document.getElementById("camera-overlay").style.display = "none";
-    badge.className = "badge badge-ok";
-    badge.innerHTML = '<span class="dot pulse"></span> scanning';
+    badge.className = "badge ok dot";
+    badge.textContent = "scanning";
 
     const canvas = document.getElementById("analyzer");
     const context = canvas.getContext("2d", { willReadFrequently: true });
@@ -111,21 +129,25 @@ document.getElementById("start-camera").addEventListener("click", async () => {
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const decoded = decodeQrFromCanvas(canvas);
       if (decoded) {
-        // A scanned QR may be either a raw token or a full scan URL.
+        // A scanned QR may be a raw token or a full scan URL.
         let token = decoded.trim();
         if (token.includes("token=")) {
-          try { token = new URL(token, window.location.origin).searchParams.get("token") || token; } catch (e) {}
+          try {
+            token = new URL(token, window.location.origin).searchParams.get("token") || token;
+          } catch (ignored) { /* keep the raw value */ }
         }
         document.getElementById("token-input").value = token;
         stopCamera();
-        toast("QR code captured — enter your roll number to finish", "ok");
+        toast("QR code captured - enter your roll number to finish", "ok");
         document.getElementById("roll-input").focus();
       }
     }, 350);
   } catch (error) {
-    badge.className = "badge badge-bad";
-    badge.innerHTML = '<span class="dot"></span> unavailable';
+    badge.className = "badge danger dot";
+    badge.textContent = "unavailable";
     toast(`Camera unavailable: ${error.message}. Paste the token instead.`, "warn", 7000);
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -133,14 +155,15 @@ function stopCamera() {
   if (scanLoop) { clearInterval(scanLoop); scanLoop = null; }
   if (stream) { stream.getTracks().forEach((track) => track.stop()); stream = null; }
   const badge = document.getElementById("camera-badge");
-  badge.className = "badge badge-plain";
+  badge.className = "badge";
   badge.textContent = "camera idle";
-  document.getElementById("camera-overlay").style.display = "grid";
-  document.getElementById("camera-overlay").textContent = "Camera stopped";
+  const overlay = document.getElementById("camera-overlay");
+  overlay.style.display = "grid";
+  overlay.textContent = "Camera stopped";
 }
 document.getElementById("stop-camera").addEventListener("click", stopCamera);
 
-/* --------------------------------------------------------------- marking */
+/* ----------------------------------------------------------------- marking */
 document.getElementById("mark-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = document.getElementById("mark-btn");
@@ -149,57 +172,71 @@ document.getElementById("mark-form").addEventListener("submit", async (event) =>
   const startedAt = performance.now();
 
   button.disabled = true;
-  button.innerHTML = '<span class="spinner"></span> Signing and submitting…';
+  button.innerHTML = '<span class="spinner"></span> Signing and submitting...';
 
   try {
     const result = await api("/api/attendance/mark", {
       method: "POST",
-      body: JSON.stringify({
-        token, roll_no: roll,
+      body: {
+        token,
+        roll_no: roll,
         device_id: deviceId(),
         client_latency_ms: Math.round(performance.now() - startedAt),
-      }),
+      },
     });
     renderReceipt(result);
     toast("Attendance recorded", "ok");
   } catch (error) {
-    document.getElementById("result").style.display = "block";
-    document.getElementById("result").innerHTML = `
+    const target = document.getElementById("result");
+    target.style.display = "block";
+    target.innerHTML = `
       <div class="callout bad">
-        <h4>Not recorded &middot; <code class="mono">${escapeHtml(error.code || "ERROR")}</code></h4>
+        <h4>Not recorded &middot; <code>${escapeHtml(error.code || "ERROR")}</code></h4>
         <p>${escapeHtml(error.message)}</p>
       </div>`;
-    toast(error.message, "bad", 7000);
+    toast(error.message, "danger", 7000);
   } finally {
     button.disabled = false;
     button.textContent = "Mark my attendance";
   }
 });
 
+/* The receipt is the artefact a student keeps: status, time, transaction id and
+   the block it ended up in. */
 function renderReceipt(result) {
-  const statusColour = { PRESENT: "ok", LATE: "warn", MANUAL: "info" }[result.status] || "info";
-  document.getElementById("result").style.display = "block";
-  document.getElementById("result").innerHTML = `
-    <div class="callout ${statusColour}">
-      <h4>${escapeHtml(result.status)} &middot; ${escapeHtml(result.student_name)}</h4>
-      <p>${escapeHtml(result.message)}</p>
-    </div>
-    <dl class="dl" style="margin-top:14px;">
-      <dt>Subject</dt><dd>${escapeHtml(result.subject_code)}</dd>
-      <dt>Marked at</dt><dd>${formatTime(result.marked_at)}</dd>
-      <dt>Transaction id</dt><dd><span class="hash copy-hash" data-copy="${escapeHtml(result.tx_id)}">${escapeHtml(result.tx_id)}</span></dd>
-      <dt>Signature</dt><dd><span class="hash">${escapeHtml(shortHash(result.signature, 16, 8))}</span></dd>
-      <dt>On chain</dt><dd>${result.on_chain
-        ? `block <a href="/block/${result.block_index}">#${result.block_index}</a>`
-        : "pending — will be sealed when the lecture ends"}</dd>
-      ${result.merkle_root ? `<dt>Merkle root</dt><dd><span class="hash">${escapeHtml(shortHash(result.merkle_root, 16, 8))}</span></dd>` : ""}
-    </dl>
-    <div class="row" style="margin-top:12px;">
-      <a class="btn btn-sm btn-primary" href="/verify?tx_id=${encodeURIComponent(result.tx_id)}">Open full proof</a>
+  const target = document.getElementById("result");
+  const good = result.status === "PRESENT" || result.status === "LATE";
+  target.style.display = "block";
+  target.innerHTML = `
+    <div class="receipt ${good ? "" : "invalid"}">
+      <div class="stamp">${escapeHtml(result.status)}</div>
+      <div class="eyebrow">Attendance receipt</div>
+      <h2 style="margin:8px 0 4px;">${escapeHtml(result.student_name)}</h2>
+      <p class="small muted" style="margin:0;">${escapeHtml(result.message)}</p>
+      <hr class="divider">
+      <dl class="dl">
+        <dt>Subject</dt><dd class="mono">${escapeHtml(result.subject_code)}</dd>
+        <dt>Marked at</dt><dd>${formatDateTime(result.marked_at)}</dd>
+        <dt>Transaction</dt>
+        <dd><span class="hash-chip" data-copy="${escapeHtml(result.tx_id)}" data-copy-label="Transaction id copied">
+          ${escapeHtml(shortHash(result.tx_id, 18, 10))}<span class="copy">copy</span></span></dd>
+        <dt>Signature</dt><dd class="mono">${escapeHtml(shortHash(result.signature, 16, 8))}</dd>
+        <dt>Block</dt>
+        <dd>${result.on_chain
+              ? `<a class="mono" href="/block/${result.block_index}">#${result.block_index}</a>`
+              : '<span class="badge warn dot">pending - sealed when the lecture ends</span>'}</dd>
+        ${result.merkle_root
+          ? `<dt>Merkle root</dt><dd class="mono">${escapeHtml(shortHash(result.merkle_root, 16, 8))}</dd>`
+          : ""}
+      </dl>
+      <div class="toolbar" style="margin-top:16px;">
+        <a class="btn btn-sm btn-primary" href="/verify?tx_id=${encodeURIComponent(result.tx_id)}">
+          Open the full proof</a>
+      </div>
     </div>`;
 }
 
-/* ---------------------------------------------------------------- lookup */
+/* ------------------------------------------------------------------ lookup */
 document.getElementById("lookup-btn").addEventListener("click", async () => {
   const txId = document.getElementById("lookup-tx").value.trim();
   if (!txId) return;
@@ -210,7 +247,7 @@ document.getElementById("lookup-btn").addEventListener("click", async () => {
     const record = data.record || {};
     target.innerHTML = `
       <div class="callout ${record.status === "PRESENT" ? "ok" : "info"}">
-        <h4>${escapeHtml(record.status || "recorded")} — ${escapeHtml(record.student_name || "")}</h4>
+        <h4>${escapeHtml(record.status || "recorded")} &mdash; ${escapeHtml(record.student_name || "")}</h4>
         <p>${data.on_chain ? `Sealed in block #${data.block.index}` : "Not yet sealed into a block"}</p>
       </div>`;
   } catch (error) {
@@ -218,6 +255,7 @@ document.getElementById("lookup-btn").addEventListener("click", async () => {
   }
 });
 
+/* Arriving from a QR link: jump straight to the roll number field. */
 if (document.getElementById("token-input").value.trim()) {
   document.getElementById("roll-input").focus();
 }

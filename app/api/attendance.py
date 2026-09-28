@@ -1,15 +1,22 @@
-"""Attendance API: sessions, rotating QR codes, marking, and manual overrides."""
+"""
+Attendance API: sessions, the rotating QR, marking, the register and
+analytics.
 
-from __future__ import annotations
+Everything a lecturer's browser or a student's phone talks to during a
+lecture lives in this file.
+"""
 
-import hashlib
-import time
-from typing import Any
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
 
-from ..services import Services
-from ..services.ledger import LedgerError
+from ..ledger import LedgerError, Services
+from ..services import (
+    defaulter_list,
+    export_rows,
+    render_data_uri,
+    scan as scan_anomalies,
+    student_report,
+)
 
 bp = Blueprint("attendance_api", __name__, url_prefix="/api")
 _services: Services | None = None
@@ -21,9 +28,24 @@ def init(services: Services) -> None:
 
 
 def _svc() -> Services:
-    if _services is None:  # pragma: no cover - always initialised by the factory
+    if _services is None:  # pragma: no cover
         raise LedgerError("Service layer is not initialised", "NOT_READY", 503)
     return _services
+
+
+# ============================================================================
+# Sessions and attendance marking
+# ============================================================================
+
+
+import hashlib
+import time
+from typing import Any
+
+from flask import Blueprint, jsonify, request
+
+from ..ledger import Services
+from ..ledger import LedgerError
 
 
 def device_fingerprint(payload: dict[str, Any]) -> str:
@@ -104,7 +126,7 @@ def session_qr(session_id: str):
     Returns the signed token *and* a ready-to-use SVG data URI, so the browser
     never needs a QR rendering library.
     """
-    from ..services.qr import render_data_uri
+    from ..services import render_data_uri
 
     data = _svc().ledger.current_qr(session_id)
     data["qr_svg"] = render_data_uri(data["token"], box_size=10, border=3)
@@ -226,5 +248,163 @@ def seal_session(session_id: str):
     result = services.ledger.seal_now(note=f"Manual seal for {session_id}")
     return jsonify(result)
 
+# ============================================================================
+# The register: students, faculty, subjects
+# ============================================================================
 
-__all__ = ["bp", "init", "device_fingerprint"]
+
+from flask import Blueprint, jsonify, request
+
+from ..ledger import Services
+from ..ledger import LedgerError
+
+
+def _public_student(student: dict) -> dict:
+    """Strip anything that should not be public."""
+    hidden = {"guardian_contact", "phone_masked", "email"}
+    return {k: v for k, v in student.items() if k not in hidden and not k.startswith("_")}
+
+
+@bp.get("/students")
+def list_students():
+    params = request.args
+    students = _svc().repo.list_students(
+        department=params.get("department"),
+        year=params.get("year"),
+        division=params.get("division"),
+        active_only=params.get("active", "1") == "1",
+    )
+    return jsonify(
+        {"ok": True, "count": len(students), "students": [_public_student(s) for s in students]}
+    )
+
+
+@bp.get("/students/<roll_no>")
+def get_student(roll_no: str):
+    student = _svc().repo.get_student(roll_no.upper())
+    if student is None:
+        raise LedgerError(f"No student with roll number {roll_no}", "UNKNOWN_STUDENT", 404)
+    return jsonify({"ok": True, "student": _public_student(student)})
+
+
+@bp.get("/subjects")
+def list_subjects():
+    params = request.args
+    semester = params.get("semester")
+    subjects = _svc().repo.list_subjects(
+        semester=int(semester) if semester else None,
+        department=params.get("department"),
+    )
+    return jsonify({"ok": True, "count": len(subjects), "subjects": [dict(s) for s in subjects]})
+
+
+@bp.get("/faculty")
+def list_faculty():
+    faculty = _svc().repo.list_faculty(department=request.args.get("department"))
+    return jsonify({"ok": True, "count": len(faculty), "faculty": [dict(f) for f in faculty]})
+
+
+@bp.get("/register/summary")
+def summary():
+    services = _svc()
+    students = services.repo.list_students()
+    return jsonify(
+        {
+            "ok": True,
+            "students": len(students),
+            "faculty": len(services.repo.list_faculty()),
+            "subjects": len(services.repo.list_subjects()),
+            "by_year": {
+                year: sum(1 for s in students if s.get("year") == year)
+                for year in sorted({s.get("year") for s in students})
+            },
+        }
+    )
+
+# ============================================================================
+# Analytics: dashboard, student reports, defaulters, anomalies, CSV
+# ============================================================================
+
+
+import csv
+import io
+
+from flask import Blueprint, Response, jsonify, request
+
+from ..ledger import Services
+from ..services import defaulter_list, export_rows, student_report
+from ..services import scan as scan_anomalies
+from ..ledger import LedgerError
+
+
+@bp.get("/analytics/dashboard")
+def dashboard():
+    return jsonify({"ok": True, "dashboard": _svc().dashboard()})
+
+
+@bp.get("/analytics/student/<roll_no>")
+def student(roll_no: str):
+    services = _svc()
+    record = services.repo.get_student(roll_no.upper())
+    if record is None:
+        raise LedgerError(f"No student with roll number {roll_no}", "UNKNOWN_STUDENT", 404)
+
+    report = student_report(
+        student=record,
+        subjects=[
+            s for s in services.repo.list_subjects() if s.get("year") == record.get("year")
+        ],
+        sessions=services.repo.list_sessions(),
+        attendance=services.repo.attendance_all(),
+    )
+    report["recent"] = services.repo.attendance_for_student(record["roll_no"])[:15]
+    report["identity"] = {
+        "public_key": record.get("public_key"),
+        "address": record.get("address"),
+    }
+    return jsonify({"ok": True, "report": report})
+
+
+@bp.get("/analytics/defaulters")
+def defaulters():
+    services = _svc()
+    threshold = float(request.args.get("threshold", 75))
+    rows = defaulter_list(
+        students=services.repo.list_students(),
+        subjects=services.repo.list_subjects(),
+        sessions=services.repo.list_sessions(),
+        attendance=services.repo.attendance_all(),
+        threshold=threshold,
+    )
+    return jsonify({"ok": True, "threshold": threshold, "count": len(rows), "defaulters": rows})
+
+
+@bp.get("/analytics/anomalies")
+def anomalies():
+    services = _svc()
+    result = scan_anomalies(
+        attendance=services.repo.attendance_all(),
+        sessions=services.repo.list_sessions(),
+    )
+    return jsonify({"ok": True, "scan": result})
+
+
+@bp.get("/analytics/export.csv")
+def export_csv():
+    services = _svc()
+    rows = export_rows(
+        students=services.repo.list_students(),
+        subjects=services.repo.list_subjects(),
+        sessions=services.repo.list_sessions(),
+        attendance=services.repo.attendance_all(),
+    )
+    buffer = io.StringIO()
+    if rows:
+        writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    return Response(
+        buffer.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=bcoe_attendance_report.csv"},
+    )

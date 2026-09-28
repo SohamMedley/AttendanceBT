@@ -67,7 +67,7 @@ class TestPages:
         """A fresh install has no data at all; the UI must still come up."""
         from app import create_app
         from app.config import AppConfig
-        from app.services import Services
+        from app.ledger import Services
         from app.storage import LocalStore
         import tempfile, pathlib
 

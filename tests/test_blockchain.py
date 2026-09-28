@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.blockchain.block import create_genesis_block
+from app.blockchain.chain import create_genesis_block
 from app.blockchain.chain import Blockchain
-from app.blockchain.ecdsa import generate_keypair
-from app.blockchain.merkle import merkle_root
-from app.blockchain.transaction import (
+from app.blockchain.crypto import generate_keypair
+from app.blockchain.crypto import merkle_root
+from app.blockchain.chain import (
     TX_ANCHOR,
     TX_ATTENDANCE,
     Transaction,
@@ -170,7 +170,7 @@ class TestBlock:
         assert block.merkle_root == merkle_root([tx.tx_id])
 
     def test_block_round_trips_through_dict(self):
-        from app.blockchain.block import Block
+        from app.blockchain.chain import Block
 
         tx, _ = signed_attendance()
         block = BlockFactory.build(create_genesis_block(difficulty=1), [tx], difficulty=1)
@@ -180,7 +180,7 @@ class TestBlock:
         assert restored.transactions[0].tx_id == tx.tx_id
 
     def test_a_sealed_block_stays_valid_after_round_tripping(self):
-        from app.blockchain.block import Block
+        from app.blockchain.chain import Block
 
         block = BlockFactory.build(
             create_genesis_block(difficulty=1), [signed_anchor()], difficulty=1
@@ -199,7 +199,7 @@ class BlockFactory:
     def build(parent, transactions, *, difficulty=1, timestamp=None):
         import time
 
-        from app.blockchain.block import Block
+        from app.blockchain.chain import Block
 
         block = Block(
             index=parent.index + 1,

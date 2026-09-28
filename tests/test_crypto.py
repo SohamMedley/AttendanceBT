@@ -10,13 +10,13 @@ from __future__ import annotations
 import pytest
 
 from app.blockchain import ecdsa, keccak
-from app.blockchain.merkle import (
+from app.blockchain.crypto import (
     merkle_levels,
     merkle_proof,
     merkle_root,
     verify_merkle_proof,
 )
-from app.blockchain.proof_of_work import (
+from app.blockchain.chain import (
     meets_difficulty,
     mine,
     next_difficulty,
@@ -60,38 +60,38 @@ class TestECDSA:
     def test_sign_and_verify_round_trip(self):
         keypair = ecdsa.generate_keypair()
         message = b"attendance|CSDO7022|2026-09-29"
-        signature = ecdsa.sign(keypair.private_hex, message)
-        assert ecdsa.verify(keypair.public_hex, message, signature)
+        signature = ecdsa.sign_message(keypair.private_hex, message)
+        assert ecdsa.verify_signature(keypair.public_hex, message, signature)
 
     def test_modified_message_is_rejected(self):
         keypair = ecdsa.generate_keypair()
-        signature = ecdsa.sign(keypair.private_hex, b"present")
-        assert not ecdsa.verify(keypair.public_hex, b"absent", signature)
+        signature = ecdsa.sign_message(keypair.private_hex, b"present")
+        assert not ecdsa.verify_signature(keypair.public_hex, b"absent", signature)
 
     def test_wrong_public_key_is_rejected(self):
         signer = ecdsa.generate_keypair()
         impostor = ecdsa.generate_keypair()
-        signature = ecdsa.sign(signer.private_hex, b"payload")
-        assert not ecdsa.verify(impostor.public_hex, b"payload", signature)
+        signature = ecdsa.sign_message(signer.private_hex, b"payload")
+        assert not ecdsa.verify_signature(impostor.public_hex, b"payload", signature)
 
     def test_signature_is_deterministic_rfc6979(self):
         """Same key + same message must give the same signature (RFC 6979)."""
         keypair = ecdsa.keypair_from_private(0xDEADBEEF)
-        first = ecdsa.sign(keypair.private_hex, b"same message")
-        second = ecdsa.sign(keypair.private_hex, b"same message")
+        first = ecdsa.sign_message(keypair.private_hex, b"same message")
+        second = ecdsa.sign_message(keypair.private_hex, b"same message")
         assert first == second
 
     def test_signature_is_low_s(self):
         """Canonical (low-S) signatures prevent malleability."""
         keypair = ecdsa.generate_keypair()
-        signature = ecdsa.sign(keypair.private_hex, b"malleability check")
+        signature = ecdsa.sign_message(keypair.private_hex, b"malleability check")
         s = int(signature[64:], 16)
         assert s <= ecdsa.N // 2
 
     def test_malformed_signatures_are_rejected(self):
         keypair = ecdsa.generate_keypair()
-        assert not ecdsa.verify(keypair.public_hex, b"x", "not-hex")
-        assert not ecdsa.verify(keypair.public_hex, b"x", "ab" * 64)
+        assert not ecdsa.verify_signature(keypair.public_hex, b"x", "not-hex")
+        assert not ecdsa.verify_signature(keypair.public_hex, b"x", "ab" * 64)
 
     def test_compressed_public_key_round_trip(self):
         keypair = ecdsa.generate_keypair()

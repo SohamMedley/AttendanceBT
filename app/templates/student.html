@@ -4,50 +4,67 @@
 
 {% block topbar_actions %}
   <a class="btn btn-sm" href="{{ url_for('pages.dashboard') }}">&larr; Console</a>
-  <button class="btn btn-sm" onclick="window.print()">Print report</button>
+  <button class="btn btn-sm" type="button" onclick="window.print()">Print report</button>
 {% endblock %}
 
 {% block content %}
 
 {% set overall = report.overall %}
-<div class="grid grid-4" style="margin-bottom:16px;">
-  <div class="stat {{ 'good' if overall.percentage >= 75 else 'bad' }}">
-    <div class="label">Overall attendance</div>
-    <div class="value">{{ overall.percentage }}%</div>
-    <div class="foot">{{ overall.attended }} of {{ overall.held }} lectures</div>
-  </div>
-  <div class="stat">
-    <div class="label">Eligibility</div>
-    <div class="value" style="font-size:19px;margin-top:8px;">
-      {% if overall.eligible %}
-        <span class="badge badge-ok"><span class="dot"></span> ELIGIBLE</span>
-      {% else %}
-        <span class="badge badge-bad"><span class="dot"></span> SHORT</span>
-      {% endif %}
-    </div>
-    <div class="foot">{{ overall.minimum_required }}% required by {{ college.affiliation }}</div>
-  </div>
-  <div class="stat">
-    <div class="label">Subjects below 75%</div>
-    <div class="value">{{ overall.defaulting_subjects | length }}</div>
-    <div class="foot">{{ overall.defaulting_subjects | join(', ') if overall.defaulting_subjects else 'none' }}</div>
-  </div>
-  <div class="stat chain">
-    <div class="label">Signed records</div>
-    <div class="value">{{ recent | length }}</div>
-    <div class="foot">on the attendance blockchain</div>
-  </div>
-</div>
+{% set pct = overall.percentage %}
 
-<div class="card" style="margin-bottom:16px;">
+<section class="card tinted reveal" style="display:flex;gap:26px;align-items:center;flex-wrap:wrap;">
+  <div class="ring" data-pct="{{ pct }}" style="width:104px;height:104px;">
+    <svg viewBox="0 0 74 74" width="104" height="104" aria-hidden="true">
+      <defs>
+        <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#7b61ff"/>
+          <stop offset="55%" stop-color="#5b8cff"/>
+          <stop offset="100%" stop-color="#34d3f5"/>
+        </linearGradient>
+      </defs>
+      <circle class="track" cx="37" cy="37" r="31"></circle>
+      <circle class="value" cx="37" cy="37" r="31" pathLength="100"></circle>
+    </svg>
+    <div class="ring-value">{{ pct }}%</div>
+  </div>
+
+  <div style="flex:1;min-width:240px;">
+    <div class="eyebrow">Overall attendance</div>
+    <h2 style="margin:6px 0 4px;">
+      {% if overall.eligible %}Eligible for the examination
+      {% else %}Below the {{ overall.minimum_required }}% requirement{% endif %}
+    </h2>
+    <p class="small muted" style="margin:0;">
+      Attended <strong>{{ overall.attended }}</strong> of <strong>{{ overall.held }}</strong> lectures
+      {%- if overall.defaulting_subjects %},
+        short in {{ overall.defaulting_subjects | length }} subject{{ '' if overall.defaulting_subjects | length == 1 else 's' }}
+        ({{ overall.defaulting_subjects | join(', ') }})
+      {%- else %} &middot; clear in every subject{% endif %}.
+    </p>
+    <div class="pill-row" style="margin-top:14px;">
+      <span class="badge {{ 'ok' if overall.eligible else 'danger' }} dot">
+        {{ 'ELIGIBLE' if overall.eligible else 'SHORT' }}</span>
+      <span class="badge">{{ overall.minimum_required }}% required by {{ college.affiliation }}</span>
+      <span class="badge info">{{ recent | length }} recent signed records</span>
+    </div>
+  </div>
+</section>
+
+<section class="card reveal">
   <div class="card-head">
-    <h2>Subject-wise attendance</h2>
-    <span class="hint">75% University of Mumbai requirement</span>
+    <div>
+      <div class="card-title"><span class="ico">&#9636;</span> Subject-wise attendance</div>
+      <div class="card-sub">University of Mumbai requires {{ overall.minimum_required }}% per subject.</div>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Code</th><th>Subject</th><th class="num">Held</th><th class="num">Attended</th><th class="num">Late</th><th class="num">%</th><th style="width:18%;">Progress</th><th>Status</th><th class="num">To recover</th></tr>
+        <tr>
+          <th>Code</th><th>Subject</th>
+          <th class="num">Held</th><th class="num">Attended</th><th class="num">Late</th>
+          <th class="num">%</th><th style="width:16%;">Progress</th><th>Status</th><th class="num">To recover</th>
+        </tr>
       </thead>
       <tbody>
         {% for row in report.subjects %}
@@ -56,63 +73,88 @@
           <td>{{ row.subject_name | truncate(34) }}</td>
           <td class="num">{{ row.held }}</td>
           <td class="num">{{ row.attended }}</td>
-          <td class="num s-LATE">{{ row.late }}</td>
-          <td class="num"><strong>{{ row.percentage }}%</strong></td>
+          <td class="num">{{ row.late }}</td>
+          <td class="num strong">{{ row.percentage }}%</td>
           <td>
-            <div class="progress {% if row.percentage < 60 %}bad{% elif row.percentage < 75 %}warn{% endif %}">
-              <span style="width:{{ [row.percentage, 100] | min }}%;"></span>
+            <div class="bar meter {{ 'danger' if row.percentage < 60 else ('warn' if row.percentage < 75 else 'ok') }}"
+                 data-pct="{{ [row.percentage, 100] | min }}" style="--pct: 0%;">
+              <i></i>
             </div>
           </td>
           <td>
-            {% if row.eligible %}<span class="badge badge-ok">ok</span>
-            {% else %}<span class="badge badge-bad">short</span>{% endif %}
+            <span class="badge {{ 'ok' if row.eligible else 'danger' }}">
+              {{ 'ok' if row.eligible else 'short' }}</span>
           </td>
           <td class="num small">
-            {% if row.lectures_to_recover %}{{ row.lectures_to_recover }} lectures{% else %}—{% endif %}
+            {% if row.lectures_to_recover %}{{ row.lectures_to_recover }} lectures{% else %}&mdash;{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <p class="small" style="margin-top:10px;">
-    "To recover" solves <code class="mono">(attended + x) / (held + x) ≥ 0.75</code> for the
-    smallest number of consecutive lectures <code class="mono">x</code>.
+  <p class="tiny muted" style="margin-top:12px;">
+    &ldquo;To recover&rdquo; solves <code>(attended + x) / (held + x) &ge; {{ overall.minimum_required / 100 }}</code>
+    for the smallest number of consecutive lectures <code>x</code>.
   </p>
-</div>
+</section>
 
-<div class="grid grid-2">
-  <div class="card">
-    <div class="card-head"><h2>Identity on the chain</h2></div>
+<div class="grid side">
+  <section class="card reveal">
+    <div class="card-head">
+      <div class="card-title"><span class="ico">&#9911;</span> Identity on the chain</div>
+    </div>
     <dl class="dl">
-      <dt>Public key (secp256k1)</dt><dd><span class="hash">{{ student.public_key }}</span></dd>
-      <dt>Wallet address</dt><dd><span class="hash copy-hash" data-copy="{{ student.address }}">{{ student.address }}</span></dd>
-      <dt>Address scheme</dt><dd class="small">Base58Check(RIPEMD160(SHA256(pubkey)))</dd>
+      <dt>Public key</dt>
+      <dd><span class="hash-chip" data-copy="{{ student.public_key }}" data-copy-label="Public key copied">
+        {{ student.public_key | short_hash(24, 12) }}<span class="copy">copy</span></span>
+        <div class="hint">secp256k1, uncompressed</div></dd>
+      <dt>Wallet address</dt>
+      <dd><span class="hash-chip" data-copy="{{ student.address }}" data-copy-label="Address copied">
+        {{ student.address }}<span class="copy">copy</span></span>
+        <div class="hint">Base58Check(RIPEMD160(SHA256(pubkey)))</div></dd>
+      <dt>Roll number</dt><dd class="mono">{{ student.roll_no }}</dd>
       <dt>Email</dt><dd class="small">{{ student.email }}</dd>
       <dt>Batch</dt><dd class="small">{{ student.batch }}</dd>
     </dl>
-  </div>
+    <hr class="divider">
+    <p class="tiny muted" style="margin:0;">
+      The private key never leaves the student's own device. Every attendance
+      record is signed with it, and the chain only ever stores the signature and
+      this public key.
+    </p>
+  </section>
 
-  <div class="card">
-    <div class="card-head"><h2>Recent records</h2></div>
-    <div class="table-wrap scroll-y">
-      <table>
-        <thead><tr><th>Date</th><th>Subject</th><th>Status</th><th>Transaction</th></tr></thead>
-        <tbody>
-          {% for record in recent %}
-          <tr>
-            <td class="small">{{ record.marked_at | datetime }}</td>
-            <td class="mono" style="font-size:11.5px;">{{ record.subject_code }}</td>
-            <td class="s-{{ record.status }}">{{ record.status }}</td>
-            <td><a class="hash" href="{{ url_for('pages.verify_page') }}?tx_id={{ record.tx_id }}">{{ record.tx_id | short_hash(8, 6) }}</a></td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4" class="empty">No attendance records yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <section class="card reveal" style="--i:1;">
+    <div class="card-head">
+      <div>
+        <div class="card-title"><span class="ico">&#9776;</span> Recent records</div>
+        <div class="card-sub">Newest first.</div>
+      </div>
     </div>
-  </div>
+    <div class="list">
+      {% for record in recent %}
+      <div class="row">
+        <span class="lead grad">{{ record.subject_code[-2:] }}</span>
+        <span class="body">
+          <span class="title">{{ record.subject_code }}</span>
+          <span class="meta">{{ record.marked_at | datetime }}</span>
+        </span>
+        <span class="tail">
+          <span class="badge {{ 'ok' if record.status == 'PRESENT' else ('warn' if record.status == 'LATE' else 'danger') }}">
+            {{ record.status }}</span>
+          <a class="mono hint" style="color:var(--brand-2);"
+             href="{{ url_for('pages.verify_page') }}?tx_id={{ record.tx_id }}">{{ record.tx_id | short_hash(8, 6) }}</a>
+        </span>
+      </div>
+      {% else %}
+      <div class="empty">
+        <div class="glyph">&#9744;</div>
+        <div>No attendance records yet.</div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
 </div>
 
 {% endblock %}

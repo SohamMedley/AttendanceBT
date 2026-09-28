@@ -1,24 +1,10 @@
 """
-Pure-Python ECDSA over the secp256k1 curve (the same curve Bitcoin and Ethereum use).
+Cryptographic primitives, written from scratch on the standard library.
 
-Why implement this instead of importing a library?
---------------------------------------------------
-1. Zero external dependencies -> the project runs with nothing but the Python
-   standard library.
-2. Every line is explainable in a viva. There is no "magic" inside.
-3. It demonstrates the actual mathematics behind blockchain digital signatures:
-   elliptic-curve point addition, scalar multiplication, the discrete-log
-   problem, and the ECDSA signing/verification equations.
-
-Security notes
---------------
-* ``k`` (the per-signature ephemeral nonce) is generated deterministically using
-  RFC 6979. Reusing or leaking ``k`` leaks the private key, which is exactly how
-  the Sony PS3 master key was broken in 2010. RFC 6979 makes that impossible.
-* Signatures are normalised to "low-S" form (canonical signatures), which is
-  what BIP-62 requires on Bitcoin and what prevents signature malleability.
-
-Curve parameters (SEC 2 / Standards for Efficient Cryptography Group)
+Keccak-256, secp256k1 / ECDSA, and Merkle trees. Kept together because they
+are the three layers everything above them depends on, and because none of
+them has any dependency on the rest of the project -- they can be read, and
+tested, on their own.
 """
 
 from __future__ import annotations
@@ -26,7 +12,172 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+
 from dataclasses import dataclass
+from typing import Iterable, Sequence
+
+
+# ============================================================================
+# Keccak-256 (Ethereum's hash)
+# ============================================================================
+#
+# Keccak-256 -- the hash function Ethereum uses (and Bitcoin does not).
+#
+# Note the trap: Ethereum's ``keccak256`` is **not** NIST's ``SHA3-256``, even
+# though they look similar. Both use the same Keccak-f[1600] permutation, but the
+# padding differs:
+#
+# * Keccak (Ethereum): domain/padding byte ``0x01``
+# * SHA3 (NIST):       domain/padding byte ``0x06``
+#
+# Python's ``hashlib.sha3_256`` therefore produces the *wrong* digest for anything
+# Ethereum-related, and there is no ``keccak256`` in the standard library. So we
+# implement it here -- about 60 lines -- which also lets us verify our own
+# implementation against the published test vectors:
+#
+#     keccak256("")    = c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
+#     keccak256("abc") = 4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
+#
+# Used for the ERC-20 style function selector ``anchor(bytes32)`` when preparing
+# the Ethereum anchoring transaction.
+
+ROTATION_OFFSETS = (
+    (0, 36, 3, 41, 18),
+    (1, 44, 10, 45, 2),
+    (62, 6, 43, 15, 61),
+    (28, 55, 25, 21, 56),
+    (27, 20, 39, 8, 14),
+)
+
+ROUND_CONSTANTS = (
+    0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000,
+    0x000000000000808B, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
+    0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
+    0x000000008000808B, 0x800000000000008B, 0x8000000000008089, 0x8000000000008003,
+    0x8000000000008002, 0x8000000000000080, 0x000000000000800A, 0x800000008000000A,
+    0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+)
+
+MASK = (1 << 64) - 1
+RATE_BYTES = 136  # 1088-bit rate for Keccak-256 (=> 512-bit capacity)
+LANES = 25
+
+
+def _rol(value: int, shift: int) -> int:
+    """Rotate a 64-bit lane left."""
+    shift %= 64
+    if shift == 0:
+        return value
+    return ((value << shift) | (value >> (64 - shift))) & MASK
+
+
+def _keccak_f1600(state: list[int]) -> None:
+    """The Keccak-f[1600] permutation: 24 rounds of theta, rho, pi, chi, iota."""
+    for round_constant in ROUND_CONSTANTS:
+        # -- theta: column parity diffusion
+        c = [
+            state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20]
+            for x in range(5)
+        ]
+        d = [c[(x - 1) % 5] ^ _rol(c[(x + 1) % 5], 1) for x in range(5)]
+        for x in range(5):
+            for y in range(5):
+                state[x + 5 * y] ^= d[x]
+
+        # -- rho + pi: rotate lanes and permute their positions
+        b = [0] * LANES
+        for x in range(5):
+            for y in range(5):
+                b[y + 5 * ((2 * x + 3 * y) % 5)] = _rol(state[x + 5 * y], ROTATION_OFFSETS[x][y])
+
+        # -- chi: the only non-linear step
+        for x in range(5):
+            for y in range(5):
+                state[x + 5 * y] = b[x + 5 * y] ^ (
+                    (~b[(x + 1) % 5 + 5 * y] & MASK) & b[(x + 2) % 5 + 5 * y]
+                )
+
+        # -- iota: break symmetry between rounds
+        state[0] ^= round_constant
+
+
+def keccak256(data: bytes) -> bytes:
+    """Compute the legacy Keccak-256 digest (Ethereum's hash) of ``data``."""
+    state = [0] * LANES
+    padded = bytearray(data)
+
+    # Multi-rate pad10*1 with the Keccak domain byte 0x01 (SHA3 would use 0x06).
+    padded.append(0x01)
+    while len(padded) % RATE_BYTES != 0:
+        padded.append(0x00)
+    padded[-1] |= 0x80
+
+    # Absorb
+    for offset in range(0, len(padded), RATE_BYTES):
+        block = padded[offset : offset + RATE_BYTES]
+        for index in range(RATE_BYTES // 8):
+            state[index] ^= int.from_bytes(block[index * 8 : index * 8 + 8], "little")
+        _keccak_f1600(state)
+
+    # Squeeze 32 bytes (the first 4 lanes)
+    return b"".join(lane.to_bytes(8, "little") for lane in state[:4])
+
+
+def keccak256_hex(data: bytes | str) -> str:
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return keccak256(data).hex()
+
+
+def function_selector(signature: str) -> str:
+    """The 4-byte function selector: the first 4 bytes of keccak256(signature)."""
+    return keccak256_hex(signature)[:8]
+
+
+def encode_uint256(value: int) -> str:
+    return f"{value:064x}"
+
+
+def encode_bytes32(data: bytes | str) -> str:
+    if isinstance(data, str):
+        data = bytes.fromhex(data)
+    if len(data) > 32:
+        raise ValueError("bytes32 cannot hold more than 32 bytes")
+    return data.rjust(32, b"\x00").hex()
+
+
+def address_to_topic(address: str) -> str:
+    """Left-pad a 20-byte address into a 32-byte topic."""
+    clean = address.lower().removeprefix("0x")
+    if len(clean) != 40:
+        raise ValueError("Ethereum addresses are 20 bytes (40 hex characters)")
+    return clean.rjust(64, "0")
+
+
+# ============================================================================
+# secp256k1 and ECDSA
+# ============================================================================
+#
+# Pure-Python ECDSA over the secp256k1 curve (the same curve Bitcoin and Ethereum use).
+#
+# Why implement this instead of importing a library?
+# --------------------------------------------------
+# 1. Zero external dependencies -> the project runs with nothing but the Python
+#    standard library.
+# 2. Every line is explainable in a viva. There is no "magic" inside.
+# 3. It demonstrates the actual mathematics behind blockchain digital signatures:
+#    elliptic-curve point addition, scalar multiplication, the discrete-log
+#    problem, and the ECDSA signing/verification equations.
+#
+# Security notes
+# --------------
+# * ``k`` (the per-signature ephemeral nonce) is generated deterministically using
+#   RFC 6979. Reusing or leaking ``k`` leaks the private key, which is exactly how
+#   the Sony PS3 master key was broken in 2010. RFC 6979 makes that impossible.
+# * Signatures are normalised to "low-S" form (canonical signatures), which is
+#   what BIP-62 requires on Bitcoin and what prevents signature malleability.
+#
+# Curve parameters (SEC 2 / Standards for Efficient Cryptography Group)
 
 # --------------------------------------------------------------------------
 # secp256k1 domain parameters
@@ -268,7 +419,7 @@ def _deterministic_k(private_key: int, digest: bytes) -> int:
         v = hmac.new(k, v, hashlib.sha256).digest()
 
 
-def sign(private_key: int | str, message: bytes) -> str:
+def sign_message(private_key: int | str, message: bytes) -> str:
     """Sign ``message`` and return the signature as 128 hex chars (r||s).
 
     The message is hashed with SHA-256 first, then the ECDSA equations are
@@ -303,7 +454,7 @@ def sign(private_key: int | str, message: bytes) -> str:
     raise ECDSAError("Unable to produce a signature (extremely unlikely)")
 
 
-def verify(public_key: str | Point, message: bytes, signature: str) -> bool:
+def verify_signature(public_key: str | Point, message: bytes, signature: str) -> bool:
     """Verify a 128-hex-char signature against a message and public key.
 
     The check is::
@@ -401,23 +552,110 @@ def address_is_valid(address: str) -> bool:
         return False
 
 
-__all__ = [
-    "ECDSAError",
-    "KeyPair",
-    "G",
-    "N",
-    "P",
-    "point_add",
-    "scalar_mult",
-    "is_on_curve",
-    "generate_keypair",
-    "keypair_from_private",
-    "parse_public_key",
-    "sign",
-    "verify",
-    "base58_encode",
-    "base58_decode",
-    "hash160",
-    "public_key_to_address",
-    "address_is_valid",
-]
+# ============================================================================
+# Merkle trees and inclusion proofs
+# ============================================================================
+#
+# Merkle tree over attendance transactions.
+#
+# A Merkle tree lets us compress *any number* of attendance records into a single
+# 32-byte root. That root is written into the block header, so:
+#
+# * Changing one record anywhere in a block changes the root -> the block hash
+#   changes -> every later block's ``prev_hash`` link breaks. Tampering is
+#   therefore mathematically detectable.
+# * A single student can be given a short *Merkle proof* (a handful of hashes)
+#   proving their record is inside a block, without revealing anyone else's data.
+#   This is the same technique Bitcoin uses for SPV (Simplified Payment
+#   Verification) wallets.
+#
+# Implementation detail: odd nodes are duplicated (Bitcoin's rule), so trees with
+# non-power-of-two leaf counts still produce a well-defined root.
+
+HASH_PREFIX = b"\x00"  # leaf domain separator
+NODE_PREFIX = b"\x01"  # internal node domain separator
+
+
+def sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def hash_leaf(value: str) -> str:
+    """Hash a single transaction id into a leaf node."""
+    return sha256_hex(HASH_PREFIX + value.encode("utf-8"))
+
+
+def hash_pair(left: str, right: str) -> str:
+    """Combine two child hashes into their parent."""
+    return sha256_hex(NODE_PREFIX + bytes.fromhex(left) + bytes.fromhex(right))
+
+
+def merkle_root(leaves: Iterable[str]) -> str:
+    """Compute the Merkle root of a sequence of transaction ids.
+
+    Returns the zero-hash for an empty input (an empty block still needs a root).
+    """
+    level: list[str] = [hash_leaf(item) for item in leaves]
+    if not level:
+        return "0" * 64
+
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level.append(level[-1])  # duplicate the last node
+        level = [hash_pair(level[i], level[i + 1]) for i in range(0, len(level), 2)]
+    return level[0]
+
+
+def merkle_levels(leaves: Sequence[str]) -> list[list[str]]:
+    """Return every level of the tree -- handy for drawing the tree in the UI."""
+    level = [hash_leaf(item) for item in leaves]
+    levels = [level[:]]
+    if not level:
+        return levels
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level = level + [level[-1]]
+        level = [hash_pair(level[i], level[i + 1]) for i in range(0, len(level), 2)]
+        levels.append(level[:])
+    return levels
+
+
+def merkle_proof(leaves: Sequence[str], index: int) -> list[dict[str, str]]:
+    """Build an inclusion proof (audit path) for the leaf at ``index``.
+
+    The proof is a list of ``{"position": "left"|"right", "hash": ...}`` steps.
+    """
+    if not leaves:
+        raise ValueError("Cannot build a proof for an empty tree")
+    if not 0 <= index < len(leaves):
+        raise IndexError("Leaf index out of range")
+
+    proof: list[dict[str, str]] = []
+    level = [hash_leaf(item) for item in leaves]
+    position = index
+
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level = level + [level[-1]]
+        sibling = position ^ 1  # XOR flips the last bit -> the sibling index
+        proof.append(
+            {
+                "position": "left" if sibling < position else "right",
+                "hash": level[sibling],
+            }
+        )
+        level = [hash_pair(level[i], level[i + 1]) for i in range(0, len(level), 2)]
+        position //= 2
+
+    return proof
+
+
+def verify_merkle_proof(leaf: str, proof: Sequence[dict[str, str]], root: str) -> bool:
+    """Recompute the root from a leaf + its proof and compare against ``root``."""
+    computed = hash_leaf(leaf)
+    for step in proof:
+        if step["position"] == "left":
+            computed = hash_pair(step["hash"], computed)
+        else:
+            computed = hash_pair(computed, step["hash"])
+    return computed == root
