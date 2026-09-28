@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="box">
+  <h2>Add a student</h2>
+  <form method="post" action="{{ url_for('web.add_student') }}" class="row">
+    <label>Roll number
+      <input name="roll_no" placeholder="BCOE23AI121" required>
+    </label>
+    <label>Name
+      <input name="name" placeholder="Full name" required>
+    </label>
+    <label>Division
+      <input name="division" value="A" size="3">
+    </label>
+    <label>Year
+      <input name="year" value="BE" size="4">
+    </label>
+    <button class="btn primary" type="submit">Add to register</button>
+  </form>
+</section>
+
+<section class="box">
+  <h2>Register ({{ students | length }})</h2>
+  <input id="search" class="search" placeholder="Search by name or roll number" autocomplete="off">
+  <div class="scroll tall">
+    <table id="register">
+      <thead>
+        <tr><th>Roll no.</th><th>Name</th><th>Division</th><th>Year</th><th>Attendance</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for student in students %}
+        <tr data-search="{{ (student.roll_no ~ ' ' ~ student.name) | lower }}">
+          <td class="mono">{{ student.roll_no }}</td>
+          <td>{{ student.name }}</td>
+          <td>{{ student.division }}</td>
+          <td>{{ student.year }}</td>
+          <td>{{ percentages.get(student.roll_no, 0) }}%</td>
+          <td class="right">
+            <a class="btn small" href="{{ url_for('web.verify_page') }}?roll_no={{ student.roll_no }}">History</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small" id="shown"></p>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>startSearch("#search", "#register");</script>
+{% endblock %}

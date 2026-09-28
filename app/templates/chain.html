@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="box">
+  <h2>Chain health</h2>
+  <button class="btn primary" id="check-chain" type="button">Check every block hash</button>
+  <div id="check-result"></div>
+  <p class="muted small">
+    This recomputes each block's hash from its contents and checks that every block points at
+    the one before it. If a record were edited in the stored file, this is where it would show.
+  </p>
+</section>
+
+<section class="box">
+  <h2>Blocks ({{ blocks | length }})</h2>
+  <p class="muted small">Newest first.</p>
+
+  {% for block in blocks %}
+    <details id="block-{{ block.index }}" {% if expanded == block.index %}open{% endif %}>
+      <summary>
+        <span class="tag {{ 'ok' if block.index else '' }}">Block #{{ block.index }}</span>
+        <span class="mono small">{{ block.hash | short_hash(14, 8) }}</span>
+        <span class="muted small">
+          {{ block.records | length }} record{{ '' if block.records | length == 1 else 's' }}
+          &middot; {{ block.timestamp | datetime }}
+        </span>
+      </summary>
+
+      <table class="kv">
+        <tr><th>Session</th><td>{{ block.session_id or '(genesis)' }}</td></tr>
+        <tr><th>Mined at</th><td>{{ block.timestamp | datetime }}</td></tr>
+        <tr><th>Nonce</th><td>{{ block.nonce }}</td></tr>
+        <tr><th>Previous hash</th><td class="mono break">{{ block.previous_hash }}</td></tr>
+        <tr><th>Merkle root</th><td class="mono break">{{ block.merkle_root }}</td></tr>
+        <tr><th>This hash</th><td class="mono break">{{ block.hash }}</td></tr>
+      </table>
+
+      {# The records are only rendered for the block you asked for. A chain of
+         forty lectures holds thousands of marks, and sending them all to draw a
+         summary list would make this page megabytes wide on a phone. #}
+      {% if not block.records %}
+        <p class="muted small">No attendance records in this block.</p>
+      {% elif expanded == block.index %}
+        <table>
+          <thead><tr><th>Roll no.</th><th>Name</th><th>Subject</th><th>Status</th><th>Marked at</th></tr></thead>
+          <tbody>
+          {% for record in block.records %}
+            <tr>
+              <td class="mono">{{ record.roll_no }}</td>
+              <td>{{ record.name }}</td>
+              <td>{{ record.subject_code }}</td>
+              <td>{{ record.status }}</td>
+              <td>{{ record.marked_at | datetime }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p><a class="btn small" href="{{ url_for('web.chain_page', block=block.index) }}#block-{{ block.index }}">
+          Show all {{ block.records | length }} records</a></p>
+      {% endif %}
+    </details>
+  {% endfor %}
+</section>
+
+{% endblock %}

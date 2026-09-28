@@ -1,141 +1,48 @@
 {% extends "base.html" %}
-{% block heading %}Verify a record{% endblock %}
-{% block subheading %}Independently check any attendance record against the chain{% endblock %}
-
 {% block content %}
-<div style="max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:var(--gutter);">
 
-  <section class="card reveal">
-    <div class="card-head">
-      <div>
-        <div class="card-title">{{ icon('check') }} Verify a transaction</div>
-        <div class="card-sub">Paste a transaction id, or open this page from any record.</div>
-      </div>
-    </div>
-    <form method="get" class="toolbar" style="align-items:flex-end;">
-      <div class="field" style="flex:1;min-width:260px;">
-        <label for="tx_id">Transaction id</label>
-        <input id="tx_id" name="tx_id" class="mono" value="{{ tx_id }}"
-               placeholder="64-character hex hash" autocomplete="off" required>
-      </div>
-      <button class="btn btn-primary" type="submit">Verify</button>
-    </form>
-    <div class="tick-list" style="margin-top:16px;">
-      <div class="tick"><span class="m">1</span> The transaction id is recomputed from its content.</div>
-      <div class="tick"><span class="m">2</span> The ECDSA signature is checked against the signer's public key.</div>
-      <div class="tick"><span class="m">3</span> The Merkle proof is walked back up to the block root.</div>
-      <div class="tick"><span class="m">4</span> The block's Proof-of-Work and hash are re-derived.</div>
-    </div>
-    <p class="tiny muted" style="margin:14px 0 0;">
-      Nothing read from the database is trusted here &mdash; every value is recomputed in Python
-      from the raw bytes.
-    </p>
-  </section>
+<section class="box">
+  <h2>1. Verify a student's attendance</h2>
+  <p class="muted small">
+    This looks the student's marks up in the chain and checks a Merkle proof for one of them.
+    The proof uses only the hashes on the path to the root, so it shows the mark is inside the
+    block without revealing the rest of the register.
+  </p>
+  <form id="prove-form" class="row">
+    <label>Roll number
+      <input id="prove-roll" name="roll_no" placeholder="BCOE23AI001"
+             value="{{ request.args.get('roll_no', '') }}" required>
+    </label>
+    <button class="btn primary" type="submit">Verify</button>
+  </form>
+  <div id="prove-result"></div>
+</section>
 
-  {% if tx_id and not receipt %}
-    <div class="callout bad reveal">
-      <h4>{{ icon('alert') }} Not found</h4>
-      <p>No transaction with that id exists on this chain. Check for a typo, or the record
-         may not have been sealed into a block yet.</p>
-    </div>
-  {% endif %}
+<section class="box">
+  <h2>2. Verify the whole chain</h2>
+  <p class="muted small">
+    Recomputes every block hash, checks each block links to the previous one, and checks each
+    Merkle root against its records.
+  </p>
+  <button class="btn primary" id="check-chain" type="button">Run the check</button>
+  <div id="check-result"></div>
+</section>
 
-  {% if receipt %}
-    {% set record = receipt.record %}
-    {% set ok = receipt.tx_id_valid and receipt.signature_valid and receipt.merkle_proof_verified and receipt.block_pow_valid %}
-    <section class="receipt {{ '' if ok else 'invalid' }} reveal">
-      <div class="stamp">{{ 'VERIFIED' if ok else 'FAILED' }}</div>
+<section class="box">
+  <h2>3. Break it yourself</h2>
+  <p class="muted small">
+    The register is a plain JSON file when you run this on a laptop. Open
+    <span class="mono">data/ledger.json</span>, change a name or a status inside a block, save,
+    then run the check above again. It will name the block that no longer matches.
+  </p>
+<pre>python manage.py tamper --block 1 --record 0 --field name --value "Someone Else"</pre>
+  <p class="muted small">
+    <span class="mono">python manage.py verify</span> does the same check from a terminal.
+  </p>
+</section>
 
-      <div class="eyebrow">Attendance receipt</div>
-      <h2 style="margin:8px 0 4px;">{{ record.student_name }}</h2>
-      <p class="small muted" style="margin:0;">
-        {{ record.student_roll }} &middot; {{ record.subject_code }} &mdash; {{ record.subject_name }}<br>
-        Marked {{ record.marked_at | datetime }}
-        {%- if receipt.block %}
-          &middot; sealed in
-          <a class="mono" href="{{ url_for('pages.block_view', index=receipt.block.index) }}">block #{{ receipt.block.index }}</a>
-        {%- endif %}
-      </p>
+{% endblock %}
 
-      <div class="pill-row" style="margin-top:14px;">
-        <span class="badge {{ 'ok' if receipt.on_chain else 'warn' }} dot">
-          {{ 'on chain' if receipt.on_chain else 'pending' }}</span>
-        <span class="badge {{ 'ok' if ok else 'danger' }}">
-          {{ 'proof complete' if ok else 'proof incomplete' }}</span>
-      </div>
-
-      <hr class="divider">
-
-      <div class="grid cols-3" style="gap:12px;">
-        <div class="stat {{ 'ok' if receipt.tx_id_valid else 'danger' }}">
-          <div class="label">Transaction id</div>
-          <div class="value" style="font-size:17px;">{{ 'VALID' if receipt.tx_id_valid else 'MISMATCH' }}</div>
-          <div class="foot">recomputed from the payload</div>
-        </div>
-        <div class="stat {{ 'ok' if receipt.signature_valid else 'danger' }}">
-          <div class="label">ECDSA signature</div>
-          <div class="value" style="font-size:17px;">{{ 'VALID' if receipt.signature_valid else 'INVALID' }}</div>
-          <div class="foot">secp256k1, low-S form</div>
-        </div>
-        <div class="stat {{ 'ok' if receipt.merkle_proof_verified else 'danger' }}">
-          <div class="label">Merkle proof</div>
-          <div class="value" style="font-size:17px;">{{ 'VERIFIED' if receipt.merkle_proof_verified else 'FAILED' }}</div>
-          <div class="foot">{{ receipt.merkle_proof.proof | length }} hash steps to the root</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="card reveal">
-      <div class="card-head">
-        <div>
-          <div class="card-title">{{ icon('link') }} Merkle inclusion proof</div>
-          <div class="card-sub">Proves this record is inside the block, without revealing the others.</div>
-        </div>
-      </div>
-      <pre class="code">leaf   = SHA256(0x00 || "{{ receipt.tx_id }}")
-{% for step in receipt.merkle_proof.proof %}parent = SHA256(0x01 || current || sibling)
-         sibling = {{ step.hash }}
-{% endfor %}root   = {{ receipt.merkle_proof.merkle_root }}
-block  = {{ receipt.block.merkle_root if receipt.block else '--' }}
-match  = {{ 'TRUE' if receipt.merkle_proof_verified else 'FALSE' }}</pre>
-    </section>
-
-    <section class="card reveal">
-      <div class="card-head">
-        <div class="card-title">{{ icon('layout') }} Raw values</div>
-        <div class="card-sub">Click any hash to copy it.</div>
-      </div>
-      <dl class="dl">
-        <dt>Transaction id</dt>
-        <dd><span class="hash-chip" data-copy="{{ receipt.tx_id }}" data-copy-label="Transaction id copied">
-          {{ receipt.tx_id | short_hash(22, 12) }}<span class="copy">copy</span></span></dd>
-        <dt>Student roll no.</dt>
-        <dd class="mono">{{ record.student_roll }}</dd>
-        <dt>Signed by</dt>
-        <dd><span class="mono">{{ receipt.transaction.sender_pubkey | short_hash(24, 12) }}</span>
-            <span class="hint">public key</span></dd>
-        <dt>Signature</dt>
-        <dd><span class="mono">{{ receipt.transaction.signature | short_hash(24, 12) }}</span></dd>
-        {% if receipt.block %}
-        <dt>Block hash</dt>
-        <dd><span class="hash-chip" data-copy="{{ receipt.block.hash }}" data-copy-label="Block hash copied">
-          {{ receipt.block.hash | short_hash(22, 12) }}<span class="copy">copy</span></span></dd>
-        <dt>Proof-of-Work</dt>
-        <dd>{{ 'valid at difficulty ' ~ receipt.block.difficulty if receipt.block_pow_valid else 'INVALID' }}</dd>
-        <dt>Nonce</dt>
-        <dd class="mono">{{ receipt.block.nonce }}</dd>
-        {% else %}
-        <dt>Block</dt>
-        <dd><span class="badge warn dot">still in the mempool</span></dd>
-        {% endif %}
-      </dl>
-
-      <div class="toolbar" style="margin-top:18px;">
-        <button class="btn btn-sm" type="button" onclick="window.print()">Print receipt</button>
-        <a class="btn btn-sm" href="{{ url_for('chain_api.get_transaction', tx_id=receipt.tx_id) }}">Raw JSON</a>
-        <a class="btn btn-sm btn-ghost" href="{{ url_for('pages.audit_page') }}">Audit the whole chain</a>
-      </div>
-    </section>
-  {% endif %}
-</div>
+{% block scripts %}
+<script>startVerifyPage();</script>
 {% endblock %}

@@ -1,160 +1,47 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
-<title>{{ title }} &middot; {{ college.short_name }} Attendance Chain</title>
-<meta name="description" content="Blockchain-based attendance system for {{ college.name }}, {{ college.affiliation }}.">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%23123a63'/><stop offset='55%' stop-color='%2317566e'/><stop offset='100%' stop-color='%231a7f7a'/></linearGradient></defs><rect width='100' height='100' rx='24' fill='url(%23g)'/><path d='M50 22 76 36v28L50 78 24 64V36z' fill='none' stroke='white' stroke-width='7' stroke-linejoin='round'/><circle cx='50' cy='50' r='8' fill='white'/></svg>">
-{# Applied before first paint so a light-theme user never sees a dark flash. #}
-<script>
-  /* Marks the document as scripted: animations that start hidden are gated on
-     this class, so a failed script load never leaves the page blank. */
-  document.documentElement.classList.add("js");
-  try {
-    var t = localStorage.getItem("bcoe.attendance.theme");
-    /* The design is light-first, matching its Navy-to-teal reference. The
-       toggle switches to dark and the choice is remembered. */
-    if (t !== "light" && t !== "dark") t = "light";
-    document.documentElement.setAttribute("data-theme", t);
-  } catch (e) { /* private mode: keep the default */ }
-</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} &middot; {{ college_short }} Attendance Chain</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-<div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
-
-<div class="shell">
-
-  <aside class="sidebar">
-    <a class="brand" href="{{ url_for('pages.home') }}">
-      <span class="brand-mark">BCOE</span>
-      <span class="brand-text">
-        <strong>Attendance Chain</strong>
-        <span>{{ college.short_name }} &middot; {{ academic_year }}</span>
-      </span>
+{% set path = request.path %}
+<header class="topbar">
+  <div class="wrap bar">
+    <a class="brand" href="{{ url_for('web.home') }}">
+      {{ college_short }} <span>Attendance Chain</span>
     </a>
-
-    <nav class="nav" id="main-nav">
-      <div class="nav-group">
-        <div class="nav-label">Attendance</div>
-        <a class="nav-item {% if active == 'home' %}active{% endif %}" href="{{ url_for('pages.home') }}">
-          {{ icon('gauge') }}<span class="label-text">Overview</span></a>
-        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{{ url_for('pages.dashboard') }}">
-          {{ icon('layout') }}<span class="label-text">Faculty Console</span></a>
-        <a class="nav-item {% if active == 'scan' %}active{% endif %}" href="{{ url_for('pages.scan') }}">
-          {{ icon('qr') }}<span class="label-text">Mark Attendance</span></a>
-        <a class="nav-item {% if active == 'students' %}active{% endif %}" href="{{ url_for('pages.dashboard') }}#students">
-          {{ icon('list') }}<span class="label-text">Students</span></a>
-      </div>
-
-      <div class="nav-group">
-        <div class="nav-label">Blockchain</div>
-        <a class="nav-item {% if active == 'explorer' %}active{% endif %}" href="{{ url_for('pages.explorer') }}">
-          {{ icon('link') }}<span class="label-text">Explorer</span></a>
-        <a class="nav-item {% if active == 'verify' %}active{% endif %}" href="{{ url_for('pages.verify_page') }}">
-          {{ icon('check') }}<span class="label-text">Verify a Record</span></a>
-        <a class="nav-item {% if active == 'anchors' %}active{% endif %}" href="{{ url_for('pages.anchors_page') }}">
-          {{ icon('anchor') }}<span class="label-text">Public Anchoring</span></a>
-        <a class="nav-item {% if active == 'audit' %}active{% endif %}" href="{{ url_for('pages.audit_page') }}">
-          {{ icon('flag') }}<span class="label-text">Audit &amp; Integrity</span></a>
-      </div>
-
-      <div class="nav-group">
-        <div class="nav-label">System</div>
-        <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="{{ url_for('pages.settings_page') }}">
-          {{ icon('settings') }}<span class="label-text">Settings &amp; Status</span></a>
-        <a class="nav-item" href="{{ url_for('chain_api.status') }}" target="_blank" rel="noopener">
-          <span class="ico">{ }</span><span class="label-text">API Status</span></a>
-      </div>
+    <nav class="nav">
+      <a href="{{ url_for('web.home') }}" class="{{ 'on' if path == '/' }}">Overview</a>
+      <a href="{{ url_for('web.console') }}" class="{{ 'on' if path.startswith('/console') or path.startswith('/session') }}">Teacher</a>
+      <a href="{{ url_for('web.students_page') }}" class="{{ 'on' if path.startswith('/students') }}">Register</a>
+      <a href="{{ url_for('web.chain_page') }}" class="{{ 'on' if path.startswith('/chain') }}">Chain</a>
+      <a href="{{ url_for('web.verify_page') }}" class="{{ 'on' if path.startswith('/verify') }}">Verify</a>
     </nav>
+  </div>
+</header>
 
-    {# The now-playing area. Apple Music keeps the current track pinned at the
-       bottom of the sidebar; here it is the lecture that is currently open. #}
-    <div class="now-playing" id="now-playing" hidden>
-      <div class="np-head"><span class="pulse" id="np-pulse"></span> Live lecture</div>
-      <div class="np-title" id="np-title">&mdash;</div>
-      <div class="np-meta" id="np-meta">&mdash;</div>
-      <a class="btn btn-primary btn-sm btn-block" href="{{ url_for('pages.scan') }}">
-        {{ icon('qr') }} Open scanner</a>
-    </div>
+<main class="wrap">
+  <h1>{{ title }}</h1>
 
-    <div class="sidebar-foot">
-      <span class="backend-badge">
-        {% if storage_backend == 'firestore' %}
-          <span class="badge ok dot">Firestore</span>
-        {% else %}
-          <span class="badge dot">Local JSON</span>
-        {% endif %}
-      </span>
-      <button class="theme-toggle" type="button" aria-label="Switch theme">
-        <span class="t-light">{{ icon('moon') }}</span>
-        <span class="t-dark">{{ icon('sun') }}</span>
-      </button>
-      <button class="nav-toggle" type="button" aria-label="Menu"
-              aria-expanded="false" aria-controls="main-nav" data-nav-toggle>
-        {{ icon('menu') }}
-      </button>
-    </div>
-  </aside>
+  {% if store_error %}
+    <p class="note bad"><strong>Storage problem:</strong> {{ store_error }}</p>
+  {% endif %}
 
-  <main class="main">
-    <header class="topbar">
-      <div>
-        <h1>{% block heading %}{{ title }}{% endblock %}</h1>
-        <div class="sub">{% block subheading %}{{ college.department }}{% endblock %}</div>
-      </div>
-      <div class="topbar-actions">
-        {% block topbar_actions %}{% endblock %}
-        {# `is defined` rather than `| default(0)`: under StrictUndefined, Jinja
-           raises while evaluating `chain_stats.blocks` before default() sees it. #}
-        {% set block_count = chain_stats.blocks if chain_stats is defined else 0 %}
-        <span class="badge {% if block_count > 1 %}brand{% endif %} dot">
-          {{ block_count }} block{{ '' if block_count == 1 else 's' }}
-        </span>
-      </div>
-    </header>
+  {% block content %}{% endblock %}
+</main>
 
-    <div class="content">
-      {% block content %}{% endblock %}
-    </div>
+<footer class="wrap foot">
+  <span>{{ college }} &middot; {{ affiliation }} &middot; {{ academic_year }}</span>
+  <span>
+    {{ stats.blocks }} blocks &middot; {{ stats.records }} sealed records &middot;
+    {{ storage_backend }} &middot; v{{ version }}
+  </span>
+</footer>
 
-    <footer class="footer">
-      <span>{{ college.name }} &middot; {{ college.affiliation }}</span>
-      <span>
-        Difficulty {{ chain_difficulty }} &middot; v{{ app_version }} &middot;
-        {{ 'Firestore backend' if storage_backend == 'firestore' else 'local JSON backend' }}
-        &middot; <span class="mono">{{ build_commit }}</span>
-      </span>
-    </footer>
-  </main>
-</div>
-
-<div class="toast-host" id="toast-host"></div>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-<script>
-  /* The sidebar's now-playing area. One request every 20 s answers the only
-     question that matters during a lecture: is a roll call open right now? */
-  (function () {
-    const box = document.getElementById("now-playing");
-    if (!box) return;
-
-    async function refresh() {
-      const data = await api("/api/sessions?status=OPEN&limit=1");
-      const open = (data.sessions || [])[0];
-      if (!open) { box.hidden = true; return; }
-      box.hidden = false;
-      document.getElementById("np-title").textContent =
-        open.subject_code + " - " + (open.room || open.division);
-      const left = Math.round((open.expires_at || 0) - Date.now() / 1000);
-      document.getElementById("np-meta").textContent =
-        open.faculty_name + " - " + (left > 0 ? left + " min left" : "expired");
-    }
-
-    poll(refresh, 20000);
-  })();
-</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

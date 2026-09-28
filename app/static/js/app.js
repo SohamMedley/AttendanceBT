@@ -1,657 +1,233 @@
 /* ============================================================================
-   BCOE Attendance Chain - front-end behaviour
-   ----------------------------------------------------------------------------
-   No framework, no build step, no CDN. Loaded on every page; each page adds a
-   small <script> block for its own behaviour using the helpers defined here.
+   The only JavaScript in the project.
 
-   Sections
-     1. small utilities   (escaping, formatting, colours)
-     2. the API helper    (fetch with sane error handling)
-     3. toasts
-     4. motion            (reveal on scroll, counting numbers, meters)
-     5. theme             (dark / light, remembered)
-     6. device identity   (for the proxy-marking guard)
-     7. live polling
-     8. the QR scanner    (jsQR, phone camera)
-     9. shared behaviours (copy-to-clipboard, confirm, tabs)
+   Four small jobs, each used on exactly one page:
+     startSessionPage()  rotate the QR code on the projector, refresh the list
+     startScanPage()     read the QR code with the phone camera
+     startVerifyPage()   ask the server to check the chain / prove a record
+     startSearch()       filter the register table
+
+   Everything else is server-rendered HTML.
    ========================================================================== */
 
-/* ------------------------------------------------------------- utilities --- */
-const $  = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+function el(id) { return document.getElementById(id); }
 
-/** Escape text before putting it anywhere near innerHTML. */
+async function getJSON(url) {
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  return data;
+}
+
+async function postJSON(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  return data;
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[ch]));
 }
 
-/** ab12cd34...ef56 -- hashes are unreadable at full length. */
-function shortHash(value, head = 10, tail = 6) {
-  const text = String(value ?? "");
-  if (!text) return "--";
-  return text.length <= head + tail + 3 ? text : `${text.slice(0, head)}...${text.slice(-tail)}`;
-}
 
-function thousands(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toLocaleString("en-IN") : "--";
-}
-
-function formatTime(value) {
-  if (!value) return "--";
-  const date = new Date(Number(value) * 1000);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function formatDateTime(value) {
-  if (!value) return "--";
-  return new Date(Number(value) * 1000).toLocaleString([], {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-  });
-}
-
-/** "just now", "4 min ago", "2 h ago" -- the feed reads better this way. */
-function relativeTime(value) {
-  if (!value) return "--";
-  const seconds = Math.max(0, Date.now() / 1000 - Number(value));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${Math.floor(seconds)} s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
-  return `${Math.floor(seconds / 86400)} d ago`;
-}
-
-/**
- * A stable colour for a given string.
- *
- * Used for the little avatars: the same roll number or hash always produces the
- * same hue, so a student's row looks the same on every page. Hash-derived, not
- * identity-derived -- nothing here is personal data.
- */
-function hashColour(value) {
-  let hash = 0;
-  const text = String(value ?? "");
-  for (let i = 0; i < text.length; i += 1) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
-  }
-  const hue = Math.abs(hash) % 360;
-  return `linear-gradient(135deg, hsl(${hue} 78% 58%), hsl(${(hue + 48) % 360} 76% 46%))`;
-}
-
-/** Two letters that stand for a person, the way a playlist shows artwork. */
-function initials(name) {
-  const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "??";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function statusClass(status) {
-  switch (String(status ?? "").toUpperCase()) {
-    case "PRESENT": case "OK": case "VERIFIED": case "CLOSED": case "SUBMITTED":
-      return "ok";
-    case "LATE": case "MANUAL": case "OPEN": case "PENDING": case "SIMULATED":
-      return "warn";
-    case "ABSENT": case "FAILED": case "SHORT": case "INVALID": case "TAMPERED":
-      return "danger";
-    default:
-      return "";
-  }
-}
-
-/* --------------------------------------------------------------- the API --- */
-/**
- * Call the JSON API.
- *
- * Rejections from the ledger carry a stable `code` ("SHARED_DEVICE",
- * "ALREADY_MARKED", ...). We surface both the code and the human message so the
- * UI can show something precise instead of "something went wrong".
- */
-async function api(path, options = {}) {
-  const config = {
-    method: options.method || "GET",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  };
-  if (options.body && typeof options.body !== "string") {
-    config.body = JSON.stringify(options.body);
-  }
-
-  let response;
-  try {
-    response = await fetch(path, config);
-  } catch (networkError) {
-    throw Object.assign(new Error("Could not reach the server."), { code: "OFFLINE" });
-  }
-
-  const text = await response.text();
-  let payload = null;
-  if (text) {
-    try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
-  }
-
-  if (!response.ok) {
-    const error = new Error(
-      (payload && (payload.error || payload.message)) || `Request failed (${response.status})`,
-    );
-    error.code = (payload && payload.code) || `HTTP_${response.status}`;
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload ?? {};
-}
-
-window.$ = $; window.$$ = $$;
-window.api = api;
-window.escapeHtml = escapeHtml;
-window.shortHash = shortHash;
-window.thousands = thousands;
-window.formatTime = formatTime;
-window.formatDateTime = formatDateTime;
-window.relativeTime = relativeTime;
-window.hashColour = hashColour;
-window.initials = initials;
-window.statusClass = statusClass;
-
-/* --------------------------------------------------------------- toasts --- */
-/**
- * Show a transient message.
- *   toast("Saved", "ok")  /  toast("Marked late", "warn", 6000)
- */
-function toast(message, kind = "info", timeout = 4200) {
-  let host = document.getElementById("toast-host");
-  if (!host) {
-    host = document.createElement("div");
-    host.id = "toast-host";
-    host.className = "toast-host";
-    document.body.appendChild(host);
-  }
-  const icons = { ok: "\u2713", danger: "\u26a0", warn: "\u26a0", info: "\u2139" };
-  const el = document.createElement("div");
-  el.className = `toast ${kind}`;
-  el.innerHTML = `<span class="ico">${icons[kind] || icons.info}</span>
-    <span class="msg">${escapeHtml(message)}</span>`;
-  host.appendChild(el);
-
-  const close = () => {
-    el.classList.add("out");
-    setTimeout(() => el.remove(), 320);
-  };
-  el.addEventListener("click", close);
-  setTimeout(close, timeout);
-}
-window.toast = toast;
-
-/* ------------------------------------------------------------- clipboard --- */
-function copyText(text, label = "Copied") {
-  const done = () => {
-    toast(`${label} to clipboard`, "ok", 1800);
-    const chip = document.activeElement && document.activeElement.closest?.(".hash-chip");
-    if (chip) {
-      chip.classList.add("copied");
-      setTimeout(() => chip.classList.remove("copied"), 1400);
-    }
-  };
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-  } else {
-    fallbackCopy(text, done);
-  }
-}
-window.copyText = copyText;
-
-function fallbackCopy(text, done) {
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  try { document.execCommand("copy"); done(); }
-  catch { toast("Copy failed - select the text manually", "warn"); }
-  area.remove();
-}
-
-/* Any element carrying data-copy becomes a copy button. */
-document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-copy]");
-  if (target) {
-    copyText(target.dataset.copy || target.textContent.trim(), target.dataset.copyLabel || "Copied");
-  }
-});
-
-/* ---------------------------------------------------------------- motion --- */
-const prefersReducedMotion =
-  window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-/**
- * Fade elements in as they scroll into view.
- * Progressive enhancement: if IntersectionObserver is missing, everything is
- * simply shown straight away.
- */
-function initReveal(root = document) {
-  const items = $$(".reveal:not(.in)", root);
-  if (!items.length) return;
-  if (prefersReducedMotion || !("IntersectionObserver" in window)) {
-    items.forEach((el) => el.classList.add("in"));
-    return;
-  }
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add("in");
-        observer.unobserve(entry.target);
-      }
-    });
-  }, { rootMargin: "0px 0px -6% 0px", threshold: 0.04 });
-  items.forEach((el) => observer.observe(el));
-}
-
-/**
- * Count a number up from zero.
- * <span data-count="2867">0</span> becomes 2,867 with tabular figures so the
- * width does not jump while it animates.
- */
-function countUp(el) {
-  const target = Number(String(el.dataset.count).replace(/[^0-9.\-]/g, ""));
-  if (!Number.isFinite(target)) return;
-  const decimals = (el.dataset.decimals && Number(el.dataset.decimals)) || 0;
-  const duration = Number(el.dataset.duration || 900);
-  const format = (value) => Number(value).toLocaleString("en-IN", {
-    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
-  });
-
-  if (prefersReducedMotion || duration <= 0) {
-    el.textContent = format(target) + (el.dataset.suffix || "");
-    return;
-  }
-  const started = performance.now();
-  const step = (now) => {
-    const t = Math.min(1, (now - started) / duration);
-    // easeOutExpo: fast to almost-there, then settles. Feels like iOS.
-    const eased = t === 1 ? 1 : 1 - Math.pow(2, -9 * t);
-    el.textContent = format(target * eased) + (el.dataset.suffix || "");
-    if (t < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-
-/**
- * Animate meter bars and rings.
- * A meter is any element with data-pct; bars use --pct, rings use --dash.
- */
-function initMeters(root = document) {
-  $$("[data-pct]", root).forEach((el) => {
-    const pct = Math.max(0, Math.min(100, Number(el.dataset.pct) || 0));
-    const paint = () => {
-      el.style.setProperty("--pct", `${pct}%`);
-      if (el.classList.contains("ring")) {
-        // Ring dasharray is expressed as a percentage of the circumference.
-        el.style.setProperty("--dash", String(pct));
-        const label = el.querySelector(".ring-value");
-        if (label && !label.dataset.count) label.textContent = `${Math.round(pct)}%`;
-      }
-    };
-    if (prefersReducedMotion) paint();
-    else requestAnimationFrame(() => setTimeout(paint, 60));
-  });
-}
-
-/** A hairline progress bar at the very top of the viewport, iOS-style. */
-function initScrollProgress() {
-  if (prefersReducedMotion) return;
-  const bar = document.createElement("div");
-  bar.className = "scroll-progress";
-  document.body.appendChild(bar);
-  const update = () => {
-    const max = document.documentElement.scrollHeight - window.innerHeight;
-    const pct = max > 0 ? (window.scrollY / max) * 100 : 0;
-    bar.style.transform = `scaleX(${Math.max(0, Math.min(1, pct / 100))})`;
-  };
-  update();
-  window.addEventListener("scroll", update, { passive: true });
-  window.addEventListener("resize", update);
-}
-
-/**
- * Paint hash avatars.
- * Markup carries only a seed (`data-avatar="BCOE23AI001"`); the colour and the
- * letters are derived here, so the same student looks the same everywhere.
- */
-function initAvatars(root = document) {
-  $$("[data-avatar]", root).forEach((el) => {
-    const seed = el.dataset.avatar || "?";
-    if (el.dataset.painted) return;
-    el.dataset.painted = "1";
-    if (el.style.background) return;          // server already painted it
-    el.style.background = hashColour(seed);
-    if (!el.textContent.trim()) {
-      el.textContent = el.dataset.initials || initials(el.dataset.name || seed.replace(/[^A-Za-z]/g, " "));
-    }
-  });
-}
-window.initAvatars = initAvatars;
-
-/* ----------------------------------------------------------------- theme --- */
-const THEME_KEY = "bcoe.attendance.theme";
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  // The button carries both icons and CSS shows whichever one offers the other
-  // theme; JS only keeps the label truthful for screen readers.
-  $$(".theme-toggle").forEach((btn) => {
-    btn.setAttribute("aria-label", theme === "light" ? "Switch to dark theme" : "Switch to light theme");
-  });
-}
-
-function initTheme() {
-  let saved = null;
-  try { saved = localStorage.getItem(THEME_KEY); } catch { /* private mode */ }
-  const preferred = saved === "light" || saved === "dark" ? saved : "light";
-  applyTheme(preferred);
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest(".theme-toggle")) return;
-    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-    try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
-    applyTheme(next);
-  });
-}
-
-/* ---------------------------------------------------------- long tables --- */
+/* ----------------------------------------------- the projector page -------- */
 /*
- * A register of 120 students, or an audit trail of 2,900 entries, is a wall of
- * rows: it buries everything else on the page and gives a phone real work to
- * lay out. A table marked `data-collapse="12"` renders its first twelve rows
- * and keeps a "Show all" button underneath. The search box, where a page has
- * one, searches every row and overrides the collapse while a term is typed.
+ * The token changes every QR_TOKEN_TTL seconds. Rather than reloading the page
+ * (which would flash the slides), we ask for the next one slightly early and
+ * replace the SVG. The list of who has marked refreshes at the same time.
  */
-function collapseTable(table) {
-  const limit = parseInt(table.dataset.collapse, 10) || 12;
-  const body = table.tBodies[0];
-  if (!body) return null;
+function startSessionPage(sessionId) {
+  const box = el("qr");
+  const countdown = el("countdown");
+  const list = el("list");
+  const count = el("count");
+  let secondsLeft = parseInt((countdown || {}).textContent || "30", 10);
 
-  // A row that exists only to carry an "empty" message is not a data row.
-  const rows = Array.from(body.rows).filter((row) => !row.querySelector("td[colspan]"));
-  const columns = table.tHead ? table.tHead.rows[0].cells.length : 1;
-  if (rows.length <= limit) return null;
-
-  const state = { rows, limit, open: false, query: "" };
-
-  const footer = document.createElement("tr");
-  footer.className = "table-more";
-  const cell = document.createElement("td");
-  cell.colSpan = columns;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "btn btn-sm btn-ghost";
-  button.textContent = `Show all ${rows.length} rows`;
-  cell.appendChild(button);
-  footer.appendChild(cell);
-  body.appendChild(footer);
-
-  state.apply = () => {
-    const term = state.query.trim().toLowerCase();
-    let visible = 0;
-    rows.forEach((row, index) => {
-      const haystack = (row.dataset.search || row.textContent || "").toLowerCase();
-      const matches = !term || haystack.includes(term);
-      const withinLimit = state.open || index < state.limit;
-      row.hidden = !(matches && (term ? true : withinLimit));
-      if (!row.hidden) visible += 1;
-    });
-    footer.hidden = Boolean(term) || visible === 0;
-    return visible;
-  };
-
-  button.addEventListener("click", () => {
-    state.open = !state.open;
-    button.textContent = state.open ? "Show fewer" : `Show all ${rows.length} rows`;
-    state.apply();
-  });
-
-  table.bcoeCollapse = state;
-  state.apply();
-  return state;
-}
-
-function initLongTables() {
-  $$("table[data-collapse]").forEach(collapseTable);
-}
-
-/** Search a collapsible table; returns how many of its rows are visible. */
-function filterTable(selector, term) {
-  const table = $(selector);
-  if (!table || !table.bcoeCollapse) return 0;
-  table.bcoeCollapse.query = term || "";
-  return table.bcoeCollapse.apply();
-}
-
-window.filterTable = filterTable;
-
-/* ------------------------------------------------------------- phone nav --- */
-/*
- * On a phone the nine navigation links cannot live in one row, so the bar keeps
- * a Menu button and the links unfold underneath it. Clicking a link, pressing
- * Escape, or resizing back to a desktop width closes the panel again.
- */
-function initNavToggle() {
-  const button = $("[data-nav-toggle]");
-  const nav = $("#main-nav");
-  if (!button || !nav) return;
-
-  const setOpen = (open) => {
-    document.body.classList.toggle("nav-open", open);
-    button.setAttribute("aria-expanded", String(open));
-  };
-
-  button.addEventListener("click", () => {
-    setOpen(!document.body.classList.contains("nav-open"));
-  });
-  nav.addEventListener("click", (event) => {
-    if (event.target.closest("a")) setOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") setOpen(false);
-  });
-  window.addEventListener("resize", () => {
-    if (window.innerWidth > 980) setOpen(false);
-  });
-}
-
-/* ------------------------------------------------------------ device id --- */
-/*
- * A random per-browser identifier used only by the proxy-marking guard: it
- * flags the pattern "one phone, many roll numbers in one session". It is not
- * derived from hardware or personal data, and is only compared within a
- * single lecture.
- */
-function deviceId() {
-  const KEY = "bcoe.attendance.device";
-  try {
-    let id = localStorage.getItem(KEY);
-    if (!id) {
-      const bytes = new Uint8Array(16);
-      window.crypto.getRandomValues(bytes);
-      id = "BCOE-DEV-" + Array.from(bytes)
-        .map((byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
-      localStorage.setItem(KEY, id);
-    }
-    return id;
-  } catch {
-    return "BCOE-DEV-EPHEMERAL" + Math.random().toString(16).slice(2, 10).toUpperCase();
-  }
-}
-window.deviceId = deviceId;
-
-/* --------------------------------------------------------------- polling --- */
-/** Run fn() now and then every intervalMs until the returned stop() is called. */
-function poll(fn, intervalMs) {
-  let stopped = false;
-  const tick = async () => {
-    if (stopped) return;
-    try { await fn(); }
-    catch (err) { console.warn("poll error:", err.message); }
-    if (!stopped) setTimeout(tick, intervalMs);
-  };
-  tick();
-  return () => { stopped = true; };
-}
-window.poll = poll;
-
-/* --------------------------------------------------------------- QR codes --- */
-/*
- * The QR code itself is generated SERVER-SIDE in Python (qrcode -> SVG) and
- * sent to the browser as a data URI, so there is no client-side encoder to go
- * wrong. On the client we only DECODE, which is what the vendored jsQR does.
- */
-function decodeQrFromCanvas(canvas) {
-  if (typeof jsQR === "undefined") return null;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const { width, height } = canvas;
-  const image = ctx.getImageData(0, 0, width, height);
-  const result = jsQR(image.data, width, height, { inversionAttempts: "dontInvert" });
-  return result ? result.data : null;
-}
-window.decodeQrFromCanvas = decodeQrFromCanvas;
-
-/* ------------------------------------------------- client-side secp256k1 */
-const Secp256k1 = (() => {
-  const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
-  const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
-  const Gx = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
-  const Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
-
-  const mod = (a, m = P) => ((a % m) + m) % m;
-
-  function modInverse(a, m = P) {
-    a = mod(a, m);
-    let [old_r, r] = [a, m];
-    let [old_s, s] = [1n, 0n];
-    while (r !== 0n) {
-      const q = old_r / r;
-      [old_r, r] = [r, old_r - q * r];
-      [old_s, s] = [s, old_s - q * s];
-    }
-    return mod(old_s, m);
-  }
-
-  function add(p, q) {
-    if (!p) return q;
-    if (!q) return p;
-    if (p.x === q.x && mod(p.y + q.y) === 0n) return null;
-    let lambda;
-    if (p.x === q.x && p.y === q.y) {
-      lambda = mod(3n * p.x * p.x * modInverse(2n * p.y));
-    } else {
-      lambda = mod((q.y - p.y) * modInverse(q.x - p.x));
-    }
-    const x = mod(lambda * lambda - p.x - q.x);
-    const y = mod(lambda * (p.x - x) - p.y);
-    return { x, y };
-  }
-
-  function multiply(k, point) {
-    let result = null, addend = point;
-    k = mod(k, N);
-    while (k > 0n) {
-      if (k & 1n) result = add(result, addend);
-      addend = add(addend, addend);
-      k >>= 1n;
-    }
-    return result;
-  }
-
-  function randomPrivateKey() {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    let value = 0n;
-    for (const byte of bytes) value = (value << 8n) | BigInt(byte);
-    return mod(value, N - 1n) + 1n;
-  }
-
-  function publicKeyHex(privateKey) {
-    const point = multiply(privateKey, { x: Gx, y: Gy });
-    const prefix = point.y & 1n ? "03" : "02";
-    return prefix + point.x.toString(16).padStart(64, "0");
-  }
-
-  /* SHA-256 in the browser, for building the transaction id. */
-  async function sha256Hex(text) {
-    const data = new TextEncoder().encode(text);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-
-  /* RFC 6979-style deterministic nonce is overkill in the browser; we use a
-   * random k (secure for a one-shot signature with crypto.getRandomValues). */
-  async function sign(privateKey, message) {
-    const z = BigInt("0x" + (await sha256Hex(message)));
-    while (true) {
-      const k = randomPrivateKey();
-      const point = multiply(k, { x: Gx, y: Gy });
-      if (!point) continue;
-      const r = mod(point.x, N);
-      if (r === 0n) continue;
-      let s = mod(modInverse(k, N) * (z + r * privateKey), N);
-      if (s === 0n) continue;
-      if (s > N / 2n) s = N - s;
-      return r.toString(16).padStart(64, "0") + s.toString(16).padStart(64, "0");
+  async function nextToken() {
+    try {
+      const data = await getJSON(`/api/session/${encodeURIComponent(sessionId)}/token`);
+      if (box && data.qr) box.innerHTML = data.qr;
+      secondsLeft = data.ttl;
+    } catch (error) {
+      if (countdown) countdown.textContent = "?";
     }
   }
 
-  return { randomPrivateKey, publicKeyHex, sign, sha256Hex, publicKeyFrom: publicKeyHex };
-})();
+  async function refreshList() {
+    try {
+      const data = await getJSON(`/api/session/${encodeURIComponent(sessionId)}/records`);
+      if (count) count.textContent = data.count;
+      if (!list || !data.records.length) return;
+      list.innerHTML =
+        "<table><thead><tr><th>Roll no.</th><th>Name</th><th>Marked at</th></tr></thead><tbody>" +
+        data.records.map((r) =>
+          `<tr><td class="mono">${escapeHtml(r.roll_no)}</td>` +
+          `<td>${escapeHtml(r.name)}</td>` +
+          `<td>${new Date(r.marked_at * 1000).toLocaleTimeString()}</td></tr>`
+        ).join("") +
+        "</tbody></table>";
+    } catch (error) { /* the page keeps working with what it already has */ }
+  }
 
-window.Secp256k1 = Secp256k1;
+  setInterval(() => {
+    secondsLeft -= 1;
+    if (countdown) countdown.textContent = Math.max(0, secondsLeft);
+    if (secondsLeft <= 2) { nextToken(); refreshList(); }
+  }, 1000);
+}
 
-/* ------------------------------------------------- shared initialisation --- */
-function initPage() {
-  initTheme();
-  initNavToggle();
-  initLongTables();
-  initAvatars();
-  initReveal();
-  initMeters();
-  initScrollProgress();
-  window.addEventListener("load", () => {
-    initAvatars();
-    initReveal();
-    initMeters();
-    $$("[data-count]").forEach(countUp);
-  });
 
-  // Animated numbers start when they scroll into view, once each.
-  if ("IntersectionObserver" in window && !prefersReducedMotion) {
-    const numbers = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) { countUp(entry.target); numbers.unobserve(entry.target); }
+/* ------------------------------------------------------- the student page -- */
+function startScanPage() {
+  const video = el("scanner");
+  const form = el("mark-form");
+  const result = el("result");
+  const rollInput = el("roll_no");
+  let lastRead = "";
+
+  function show(html, kind) {
+    if (!result) return;
+    result.innerHTML = `<p class="note ${kind || ""}">${html}</p>`;
+  }
+
+  async function mark(rollNo) {
+    if (!rollNo) { show("Enter your roll number first.", "bad"); return; }
+    try {
+      const data = await postJSON("/api/mark", {
+        session_id: form.session_id.value,
+        window: form.window.value,
+        signature: form.signature.value,
+        roll_no: rollNo,
       });
-    }, { threshold: 0.3 });
-    $$("[data-count]").forEach((el) => numbers.observe(el));
-  } else {
-    $$("[data-count]").forEach(countUp);
+      show(`${escapeHtml(data.message)} The mark is stored and will be sealed into a block when the lecture ends.`, "ok");
+      form.style.display = "none";
+      if (video && video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
+    } catch (error) {
+      show(escapeHtml(error.message), "bad");
+    }
   }
 
-  // Two-finger-style press feedback on buttons, borrowed from touch UI.
-  document.addEventListener("pointerdown", (event) => {
-    const btn = event.target.closest(".btn, .nav-item, .subject-tile, .tamper-step");
-    if (btn && !prefersReducedMotion) {
-      btn.style.transition = "transform 120ms var(--ease)";
-      btn.style.transform = "scale(0.975)";
-    }
-  });
-  document.addEventListener("pointerup", (event) => {
-    const btn = event.target.closest(".btn, .nav-item, .subject-tile, .tamper-step");
-    if (btn) { btn.style.transform = ""; setTimeout(() => { btn.style.transition = ""; }, 130); }
-  });
+  if (form) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      mark(rollInput.value.trim());
+    });
+  }
+
+  // The camera is optional: if it is refused or unavailable, the form is enough.
+  if (!video || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.jsQR) return;
+
+  navigator.mediaDevices
+    .getUserMedia({ video: { facingMode: "environment" } })
+    .then((stream) => {
+      video.srcObject = stream;
+      video.play();
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      setInterval(() => {
+        if (!video.videoWidth || form.style.display === "none") return;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const image = context.getImageData(0, 0, canvas.width, canvas.height);
+        const found = window.jsQR(image.data, image.width, image.height);
+        if (!found || found.data === lastRead) return;
+
+        lastRead = found.data;
+        // The QR code is the link to this page, so take its token and mark with
+        // whatever roll number is already typed in.
+        try {
+          const scanned = new URL(found.data);
+          form.session_id.value = scanned.searchParams.get("s") || form.session_id.value;
+          form.window.value = scanned.searchParams.get("w") || form.window.value;
+          form.signature.value = scanned.searchParams.get("sig") || form.signature.value;
+        } catch (error) { /* not a URL: fall through and use the form's token */ }
+
+        if (rollInput.value.trim()) mark(rollInput.value.trim());
+        else show("Code read. Type your roll number and press Mark me present.");
+      }, 700);
+    })
+    .catch(() => { /* no camera: the form still works */ });
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initPage);
-} else {
-  initPage();
+
+/* --------------------------------------------------------- the verify page -- */
+function startVerifyPage() {
+  const button = el("check-chain");
+  const result = el("check-result");
+  const form = el("prove-form");
+  const out = el("prove-result");
+
+  if (button && result) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      result.innerHTML = "<p class=\"muted\">Checking...</p>";
+      try {
+        const data = await postJSON("/api/verify", {});
+        result.innerHTML = `<p class="note ${data.ok ? "ok" : "bad"}">${escapeHtml(data.message)}</p>`;
+      } catch (error) {
+        result.innerHTML = `<p class="note bad">${escapeHtml(error.message)}</p>`;
+      }
+      button.disabled = false;
+    });
+  }
+
+  if (form && out) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const rollNo = el("prove-roll").value.trim();
+      out.innerHTML = "<p class=\"muted\">Looking in the chain...</p>";
+      try {
+        const data = await getJSON(`/api/prove?roll_no=${encodeURIComponent(rollNo)}`);
+        const proof = data.proof;
+        out.innerHTML = `
+          <table class="kv">
+            <tr><th>Student</th><td>${escapeHtml(proof.record.name)} (${escapeHtml(proof.record.roll_no)})</td></tr>
+            <tr><th>Subject</th><td>${escapeHtml(proof.record.subject_code)} &mdash; ${escapeHtml(proof.record.subject_name)}</td></tr>
+            <tr><th>Status</th><td>${escapeHtml(proof.record.status)}</td></tr>
+            <tr><th>Block</th><td>#${proof.block_index}</td></tr>
+            <tr><th>Record hash</th><td class="mono break">${proof.record_hash}</td></tr>
+            <tr><th>Merkle root of the block</th><td class="mono break">${proof.root}</td></tr>
+            <tr><th>Hashes in the proof</th><td>${proof.proof.length}</td></tr>
+          </table>
+          <p class="note ${proof.proof_valid ? "ok" : "bad"}">
+            ${proof.proof_valid
+              ? "The proof checks out: this mark is inside block #" + proof.block_index + ", and the block hash is " + proof.block_hash.slice(0, 16) + "..."
+              : "The proof does not match the block. The stored data has been changed."}
+          </p>`;
+      } catch (error) {
+        out.innerHTML = `<p class="note bad">${escapeHtml(error.message)}</p>`;
+      }
+    });
+    if (el("prove-roll").value.trim()) form.dispatchEvent(new Event("submit"));
+  }
+}
+
+
+/* ------------------------------------------------------------ register ----- */
+function startSearch(inputSelector, tableSelector) {
+  const input = document.querySelector(inputSelector);
+  const table = document.querySelector(tableSelector);
+  if (!input || !table) return;
+  const rows = Array.from(table.tBodies[0].rows);
+  const shown = el("shown");
+
+  input.addEventListener("input", () => {
+    const term = input.value.trim().toLowerCase();
+    let visible = 0;
+    rows.forEach((row) => {
+      const match = !term || (row.dataset.search || "").includes(term);
+      row.hidden = !match;
+      if (match) visible += 1;
+    });
+    if (shown) shown.textContent = `${visible} of ${rows.length} shown`;
+  });
 }

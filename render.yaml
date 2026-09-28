@@ -1,76 +1,34 @@
-# ============================================================================
-#  Render Blueprint - BCOE Blockchain Attendance System
-# ----------------------------------------------------------------------------
-#  How to use this file
-#    1. Push this repository to GitHub.
-#    2. Render dashboard -> New + -> Blueprint.
-#    3. Connect the repository and pick the branch you are working on
-#       (arena/01a0e97f-attendancebt) -- NOT main, unless it has been merged.
-#    4. Render reads this file and creates the service below.
-#    5. Add the secret environment variables it asks for (see README).
-#
-#  The service is a plain Python web service running gunicorn. No build step,
-#  no Node, no bundler: the front end is hand-written CSS and JavaScript served
-#  by Flask.
-# ============================================================================
-
+# Render Blueprint. Connect this repository, pick the branch you want to deploy,
+# and Render creates the service from this file.
 services:
   - type: web
     name: bcoe-attendance-chain
     runtime: python
     plan: free
-    region: singapore                      # closest Render region to Mumbai
+    region: singapore
     branch: arena/01a0e97f-attendancebt
     autoDeploy: true
     buildCommand: pip install -r requirements.txt
-    # One worker: the ledger is loaded into memory and written by the app, so
-    # several processes would each hold their own copy of the chain. A single
-    # threaded worker handles a lecture hall comfortably.
-    startCommand: gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 300
-    healthCheckPath: /api/system/health
+    startCommand: gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.6"
       - key: SECRET_KEY
-        generateValue: true                # Render generates a strong value
+        generateValue: true
       - key: STORAGE_BACKEND
-        value: auto                        # Firestore when configured, else local
+        value: auto
       - key: CHAIN_DIFFICULTY
-        value: "4"                         # 1-4 seals instantly, 5-6 visibly mines
-      - key: ANCHOR_PROVIDER
-        value: simulated                   # no external service required to demo
+        value: "4"
       - key: QR_TOKEN_TTL
         value: "30"
       - key: ACADEMIC_YEAR
-        value: "2026-27"
+        value: 2026-27
       - key: APP_DEBUG
         value: "false"
-
-      # ----------------------------------------------------------- Firestore --
-      # These are read by the app; leave them unset to stay on the local store.
-      # Set them in the Render dashboard rather than committing values here.
+      # Set these two in the Render dashboard (they are secrets, and Render asks
+      # for them when the Blueprint is created).
       - key: FIREBASE_PROJECT_ID
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT
-        sync: false                        # the whole service-account JSON, on one line
-
-      - key: ETHEREUM_CHAIN_ID
-        value: "11155111"                  # Sepolia testnet (used only by ethereum anchoring)
-
-      # ----------------------------------------------------------- anchoring --
-      # Only needed if you switch ANCHOR_PROVIDER to `ethereum`. Add these three
-      # in the Render dashboard when you get there -- the app treats an empty
-      # value as "not configured", so leaving them out changes nothing.
-      #   ETHEREUM_RPC_URL, ETHEREUM_CONTRACT, ETHEREUM_PRIVATE_KEY
-
-# ----------------------------------------------------------------------------
-#  A disk would keep data/ between deploys. The free plan does not offer one,
-#  which is exactly why Firestore is the recommended store in production --
-#  see the "Deploying on Render" section of the README.
-#
-#  disks:
-#    - name: ledger
-#      mountPath: /var/data
-#      sizeGB: 1
-#  ...and then set LOCAL_STORE_PATH=/var/data/attendance_ledger.json
-# ----------------------------------------------------------------------------
+        sync: false

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="box">
+  <h2>Open a roll call</h2>
+  <form method="post" action="{{ url_for('web.open_session') }}" class="row">
+    <label>Subject
+      <select name="subject_code">
+        {% for subject in subjects %}
+          <option value="{{ subject.code }}">{{ subject.code }} &mdash; {{ subject.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Room
+      <input name="room" value="Lab 204" size="10">
+    </label>
+    <label>Open for
+      <select name="minutes">
+        <option value="15">15 minutes</option>
+        <option value="30" selected>30 minutes</option>
+        <option value="60">1 hour</option>
+      </select>
+    </label>
+    <button class="btn primary" type="submit">Open roll call</button>
+  </form>
+  <p class="muted">
+    The QR code on the next page changes every {{ settings.qr_ttl }} seconds. Students scan it
+    with a phone and enter their roll number.
+  </p>
+</section>
+
+<section class="box">
+  <h2>Lectures</h2>
+  {% if sessions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Subject</th><th>Opened</th><th>Room</th><th>Status</th><th>Marked</th><th>Block</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for session in sessions %}
+        <tr>
+          <td>{{ session.subject_code }} &mdash; {{ session.subject_name }}</td>
+          <td>{{ session.opened_at | datetime }}</td>
+          <td>{{ session.room }}</td>
+          <td>
+            {% if session.closed_at %}<span class="tag ok">sealed</span>
+            {% elif session.id in open_ids %}<span class="tag warn">open</span>
+            {% else %}<span class="tag">expired</span>{% endif %}
+          </td>
+          <td>{{ marked.get(session.id, 0) }}</td>
+          <td>
+            {% if session.block_index is not none %}
+              <a href="{{ url_for('web.chain_page', block=session.block_index) }}#block-{{ session.block_index }}">#{{ session.block_index }}</a>
+            {% else %}&mdash;{% endif %}
+          </td>
+          <td class="right">
+            <a class="btn small" href="{{ url_for('web.session_page', session_id=session.id) }}">
+              {% if session.closed_at %}Receipt{% else %}QR &amp; live list{% endif %}
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No lecture has been opened yet.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

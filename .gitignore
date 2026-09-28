@@ -1,35 +1,8 @@
-# ---------------------------------------------------------------- secrets ---
-# NEVER commit these. They contain private keys.
-firebase-service-account.json
-secrets/
-*.pem
-.env
-.env.local
-
-# ------------------------------------------------------------- local data ---
-# The ledger and the key store are runtime state, not source code.
-data/
-*.json.tmp
-
-# ----------------------------------------------------------------- python ---
 __pycache__/
-*.py[cod]
-*.egg-info/
+*.pyc
+.env
+data/
 .venv/
 venv/
-env/
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# ----------------------------------------------------------------- editor ---
-.vscode/
-.idea/
-*.swp
-.DS_Store
-
-# ----------------------------------------------------------------- output ---
-chain_export.json
-*.ots
+firebase-service-account.json

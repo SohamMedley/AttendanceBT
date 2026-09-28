@@ -1,47 +1,13 @@
-# ============================================================================
-#  BCOE Blockchain Attendance System - Python dependencies
+# The blockchain, the hashing and the storage layer are written from scratch and
+# need nothing from this file. Only three things are third-party:
 #
-#  The blockchain, the cryptography and the storage layer are written from
-#  scratch and need NOTHING from this file. These three packages are used only
-#  for the web server, the QR image and the test runner.
+#   Flask    the web server
+#   qrcode   drawing the QR code as SVG (pure Python, no Pillow needed)
+#   gunicorn the WSGI server Render runs
 #
-#      pip install -r requirements.txt
-#
-#  If you cannot install anything at all, the CLI still works:
-#      python manage.py self-test
-#      python manage.py seed
-#      python manage.py demo
-#  (only the web UI and the QR image need these packages)
-# ============================================================================
+# pytest is for the tests.
 
-# Web framework (server-side rendering + JSON API)
 Flask>=3.0,<4.0
-
-# QR code rendering, server-side, as SVG. Pure Python for the SVG backend,
-# so Pillow is NOT required.
 qrcode>=7.4,<9.0
-
-# Production WSGI server. Render's start command runs gunicorn rather than the
-# Flask development server. Locally, `python manage.py serve` is fine.
 gunicorn>=21.2,<24.0
-
-# Test runner
 pytest>=8.0
-
-# ---------------------------------------------------------------------------
-# OPTIONAL - install only if you need the corresponding feature.
-# ---------------------------------------------------------------------------
-# Google Cloud Firestore access is implemented over the REST API using only the
-# standard library, so it works with nothing extra. Install these to use the
-# official libraries instead (faster token refresh, connection pooling):
-#
-# firebase-admin>=6.5
-#
-# Required only to BROADCAST an Ethereum anchor transaction (preparing the
-# transaction needs nothing extra):
-#
-# web3>=6.11
-#
-# Required only to VERIFY an OpenTimestamps proof from the command line:
-#
-# opentimestamps-client>=0.7

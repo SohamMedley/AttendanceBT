@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="cols">
+  <section class="box">
+    <h2>How attendance is recorded</h2>
+    <ol class="steps">
+      <li>The teacher opens a roll call for a subject. A QR code appears on the projector.</li>
+      <li>The QR code carries a signed token that changes every {{ settings.qr_ttl }} seconds, so a photo of it stops working almost immediately.</li>
+      <li>A student scans it and enters their roll number. The mark is stored straight away.</li>
+      <li>When the teacher closes the roll call, every mark is sealed into a new block, and the block is chained to the one before it by its hash.</li>
+    </ol>
+    <p class="muted">
+      Change one mark afterwards and the block's hash no longer matches, which breaks the
+      chain from that block onwards. That is the whole point of putting the register on a
+      blockchain.
+    </p>
+  </section>
+
+  <section class="box">
+    <h2>Start here</h2>
+    <div class="actions">
+      <a class="btn primary" href="{{ url_for('web.console') }}">Open the teacher console</a>
+      <a class="btn" href="{{ url_for('web.chain_page') }}">See the blockchain</a>
+    </div>
+    <table class="kv">
+      <tr><th>Students on the register</th><td>{{ stats.students }}</td></tr>
+      <tr><th>Lectures recorded</th><td>{{ stats.sessions }}</td></tr>
+      <tr><th>Attendance marks</th><td>{{ stats.attendance_records }}</td></tr>
+      <tr><th>Blocks mined</th><td>{{ stats.blocks }}</td></tr>
+      <tr><th>Sealed records</th><td>{{ stats.records }}</td></tr>
+      <tr><th>Proof-of-work difficulty</th><td>{{ stats.difficulty }} leading zeros</td></tr>
+      <tr><th>Stored in</th><td>{{ storage_backend }}</td></tr>
+    </table>
+  </section>
+</div>
+
+<section class="box">
+  <h2>Open roll calls</h2>
+  {% if open_sessions %}
+    <table>
+      <thead>
+        <tr><th>Subject</th><th>Class</th><th>Room</th><th>Marked</th><th>Closes at</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for session in open_sessions %}
+        <tr>
+          <td>{{ session.subject_code }} &mdash; {{ session.subject_name }}</td>
+          <td>{{ session.division }}</td>
+          <td>{{ session.room }}</td>
+          <td>{{ marked.get(session.id, 0) }}</td>
+          <td>{{ session.expires_at | datetime }}</td>
+          <td><a class="btn small" href="{{ url_for('web.session_page', session_id=session.id) }}">Open QR</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No lecture is open right now. <a href="{{ url_for('web.console') }}">Open one.</a></p>
+  {% endif %}
+</section>
+
+<section class="box">
+  <h2>Recent lectures</h2>
+  {% if recent %}
+    <table>
+      <thead>
+        <tr><th>Subject</th><th>Opened</th><th>Status</th><th>Marked</th><th>Block</th></tr>
+      </thead>
+      <tbody>
+      {% for session in recent %}
+        <tr>
+          <td>{{ session.subject_code }} &mdash; {{ session.subject_name }}</td>
+          <td>{{ session.opened_at | datetime }}</td>
+          <td>
+            {% if session.closed_at %}<span class="tag ok">sealed</span>
+            {% else %}<span class="tag warn">open</span>{% endif %}
+          </td>
+          <td>{{ marked.get(session.id, 0) }}</td>
+          <td>
+            {% if session.block_index is not none %}
+              <a href="{{ url_for('web.chain_page', block=session.block_index) }}#block-{{ session.block_index }}">#{{ session.block_index }}</a>
+            {% else %}&mdash;{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Nothing recorded yet.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

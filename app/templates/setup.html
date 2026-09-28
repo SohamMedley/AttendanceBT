@@ -1,96 +1,28 @@
 {% extends "base.html" %}
-{% block heading %}First-time setup{% endblock %}
-{% block subheading %}The register is empty &mdash; populate it to get started{% endblock %}
-
 {% block content %}
-<div style="max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:var(--gutter);">
 
-  <section class="hero reveal">
-    <div class="eyebrow">Welcome</div>
-    <h1 style="margin-top:10px;">{{ college.name }} Attendance Chain</h1>
-    <p class="lede">
-      A blockchain-based attendance system for {{ college.department }}, built for the
-      University of Mumbai subject <strong>CSDO7022 Blockchain Technologies</strong>.
-      Nothing is loaded yet, so the first step is to create the college register:
-      students, faculty, subjects and a real secp256k1 key pair for every person.
-    </p>
-  </section>
+<section class="box narrow">
+  <h2>Set up the register</h2>
+  <p>
+    This deployment has no data yet. The button below creates the class register
+    &mdash; 120 students of {{ department }} &mdash; and the first block of the chain.
+  </p>
+  <p class="muted">
+    Nothing is downloaded and no second database is needed. Everything lives in
+    {{ storage_backend }}.
+  </p>
+  <form method="post" action="{{ url_for('web.setup_run') }}">
+    <button class="btn primary" type="submit">Create the demo register</button>
+  </form>
+</section>
 
-  <div class="grid side">
-    <section class="card reveal" style="--i:1;">
-      <div class="card-head">
-        <div>
-          <div class="card-title">{{ icon('zap') }} Populate the register</div>
-          <div class="card-sub">One click. Runs in a few seconds.</div>
-        </div>
-        <span class="badge brand">one click</span>
-      </div>
+<section class="box narrow">
+  <h2>Adding your own students</h2>
+  <p>
+    The register can be edited from the <a href="{{ url_for('web.students_page') }}">Register</a>
+    page at any time, or one at a time from a terminal:
+  </p>
+<pre>python manage.py add-student BCOE23AI121 "Your Name"</pre>
+</section>
 
-      <div class="tick-list" style="margin-bottom:18px;">
-        <div class="tick"><span class="m">{{ icon('check') }}</span> {{ college.department }} students across divisions</div>
-        <div class="tick"><span class="m">{{ icon('check') }}</span> Six faculty members with real subject allocation</div>
-        <div class="tick"><span class="m">{{ icon('check') }}</span> University of Mumbai subjects, real course codes</div>
-        <div class="tick"><span class="m">{{ icon('check') }}</span> A unique secp256k1 key pair for every person</div>
-        <div class="tick"><span class="m">{{ icon('check') }}</span> The genesis block, sealed with proof of work</div>
-      </div>
-
-      <button class="btn btn-primary btn-block btn-lg" id="seed-btn" type="button">
-        Create the register
-      </button>
-      <div id="seed-result" style="margin-top:14px;"></div>
-    </section>
-
-    <section class="card reveal" style="--i:2;">
-      <div class="card-head">
-        <div class="card-title">{{ icon('grid') }} Current state</div>
-      </div>
-      <div class="grid cols-3" style="gap:12px;">
-        <div class="stat">
-          <div class="label">Students</div>
-          <div class="value" data-count="{{ register.students }}">0</div>
-        </div>
-        <div class="stat">
-          <div class="label">Subjects</div>
-          <div class="value" data-count="{{ register.subjects }}">0</div>
-        </div>
-        <div class="stat">
-          <div class="label">Blocks</div>
-          <div class="value" data-count="{{ register.blocks }}">0</div>
-        </div>
-      </div>
-
-      <hr class="divider">
-      <div class="card-title" style="margin-bottom:10px;">{{ icon('terminal') }} Prefer the terminal?</div>
-      <pre class="code">python manage.py seed            <span class="c"># register + keys</span>
-python manage.py demo --weeks 6  <span class="c"># six weeks of history</span>
-python manage.py serve           <span class="c"># start the app</span></pre>
-    </section>
-  </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.getElementById("seed-btn").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  const target = document.getElementById("seed-result");
-  button.disabled = true;
-  button.innerHTML = '<span class="spinner"></span> Generating keys and register...';
-  try {
-    const data = await api("/api/system/seed", { method: "POST", body: {} });
-    target.innerHTML = `
-      <div class="callout ok">
-        <h4>{{ icon('check') }} Register created</h4>
-        <p>${thousands(data.students)} students, ${data.faculty} faculty, ${data.subjects}
-           subjects and ${thousands(data.keys_created)} new key pairs.</p>
-      </div>`;
-    toast("Register created - redirecting", "ok");
-    setTimeout(() => { window.location.href = "{{ url_for('pages.home') }}"; }, 1800);
-  } catch (error) {
-    target.innerHTML = `<div class="callout bad"><p>${escapeHtml(error.message)}</p></div>`;
-    button.disabled = false;
-    button.textContent = "Create the register";
-  }
-});
-</script>
 {% endblock %}

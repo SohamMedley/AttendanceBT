@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="box narrow">
+  <h2>{{ title }}</h2>
+  <p class="note bad">{{ message }}</p>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('web.home') }}">Back to the overview</a>
+    <a class="btn" href="{{ url_for('web.console') }}">Teacher console</a>
+  </div>
+</section>
+
+{% endblock %}
