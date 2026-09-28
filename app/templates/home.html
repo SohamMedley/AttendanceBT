@@ -135,7 +135,7 @@
     {% for day in dashboard.trend %}
       <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;"
            title="{{ day.label }}: {{ day.present }} present, {{ day.late }} late, {{ day.manual }} manual">
-        <div style="background:linear-gradient(180deg,#34d3f5,#30d158);height:{{ (day.present / max_total * 100) | round(1) }}%;border-radius:6px 6px 0 0;min-height:{{ 3 if day.present else 0 }}px;transition:height 700ms var(--spring-soft);"></div>
+        <div style="background:linear-gradient(180deg,#17566e,#1a7f7a);height:{{ (day.present / max_total * 100) | round(1) }}%;border-radius:6px 6px 0 0;min-height:{{ 3 if day.present else 0 }}px;transition:height 700ms var(--spring-soft);"></div>
         <div style="background:linear-gradient(180deg,#ff9f0a,#ffd60a);height:{{ (day.late / max_total * 100) | round(1) }}%;min-height:{{ 3 if day.late else 0 }}px;transition:height 700ms var(--spring-soft);"></div>
         <div style="background:var(--info);height:{{ (day.manual / max_total * 100) | round(1) }}%;min-height:{{ 3 if day.manual else 0 }}px;"></div>
       </div>

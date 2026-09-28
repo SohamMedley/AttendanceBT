@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="light dark">
 <title>{{ title }} &middot; {{ college.short_name }} Attendance Chain</title>
 <meta name="description" content="Blockchain-based attendance system for {{ college.name }}, {{ college.affiliation }}.">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%237b61ff'/><path d='M50 22 76 36v28L50 78 24 64V36z' fill='none' stroke='white' stroke-width='7' stroke-linejoin='round'/><circle cx='50' cy='50' r='8' fill='white'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%23123a63'/><stop offset='55%' stop-color='%2317566e'/><stop offset='100%' stop-color='%231a7f7a'/></linearGradient></defs><rect width='100' height='100' rx='24' fill='url(%23g)'/><path d='M50 22 76 36v28L50 78 24 64V36z' fill='none' stroke='white' stroke-width='7' stroke-linejoin='round'/><circle cx='50' cy='50' r='8' fill='white'/></svg>">
 {# Applied before first paint so a light-theme user never sees a dark flash. #}
 <script>
   /* Marks the document as scripted: animations that start hidden are gated on
@@ -15,11 +15,9 @@
   document.documentElement.classList.add("js");
   try {
     var t = localStorage.getItem("bcoe.attendance.theme");
-    /* Dark is the default regardless of the operating system: this is a
-       blockchain ledger shown on projectors, and the dark palette is the one
-       the design is built around. Light is opt-in via the toggle, and the
-       choice is remembered. */
-    if (t !== "light" && t !== "dark") t = "dark";
+    /* The design is light-first, matching its Navy-to-teal reference. The
+       toggle switches to dark and the choice is remembered. */
+    if (t !== "light" && t !== "dark") t = "light";
     document.documentElement.setAttribute("data-theme", t);
   } catch (e) { /* private mode: keep the default */ }
 </script>

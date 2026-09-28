@@ -342,7 +342,7 @@ const THEME_KEY = "bcoe.attendance.theme";
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   $$(".theme-toggle").forEach((btn) => {
-    btn.textContent = theme === "light" ? "\u263e" : "\u2600";
+    btn.textContent = theme === "light" ? "\u263e" : "\u2600";   // moon offers dark
     btn.setAttribute("aria-label", theme === "light" ? "Switch to dark theme" : "Switch to light theme");
   });
 }
@@ -350,7 +350,7 @@ function applyTheme(theme) {
 function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch { /* private mode */ }
-  const preferred = saved === "light" || saved === "dark" ? saved : "dark";
+  const preferred = saved === "light" || saved === "dark" ? saved : "light";
   applyTheme(preferred);
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".theme-toggle")) return;
