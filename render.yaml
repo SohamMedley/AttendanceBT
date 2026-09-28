@@ -1,0 +1,17 @@
+# Deploy via Render → New → Blueprint after merging this branch into main.
+services:
+  - type: web
+    name: provex-attendance
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # The ledger is in memory: multiple workers would have different records.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60 --access-logfile - --error-logfile -
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.11
+      - key: ATTENDANCE_SECRET
+        generateValue: true
+      - key: PYTHONUNBUFFERED
+        value: "1"
