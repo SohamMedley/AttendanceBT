@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block heading %}Mark your attendance{% endblock %}
+{% block subheading %}Scan the QR code shown by your faculty member{% endblock %}
+
+{% block content %}
+<div style="max-width:640px;margin:0 auto;">
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head">
+      <h2>Step 1 &middot; Scan the code</h2>
+      <span class="badge badge-plain" id="camera-badge">camera idle</span>
+    </div>
+
+    <div style="position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;max-height:340px;">
+      <video id="video" playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
+      <canvas id="analyzer" style="display:none;"></canvas>
+      <div id="camera-overlay" style="position:absolute;inset:0;display:grid;place-items:center;color:#94a3b8;font-size:13px;">
+        Camera preview appears here
+      </div>
+      <div style="position:absolute;inset:12%;border:2px solid rgba(99,102,241,.75);border-radius:14px;pointer-events:none;"></div>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <button class="btn btn-primary btn-sm" id="start-camera">Start camera</button>
+      <button class="btn btn-sm" id="stop-camera">Stop</button>
+      <span class="small">Works on phones and laptops. Camera access needs HTTPS or localhost.</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="card-head"><h3>Or enter the code manually</h3></div>
+    <p class="small" style="margin-bottom:10px;">
+      If your camera is not available, ask the faculty member for the token shown under the QR code.
+    </p>
+    <div class="field">
+      <label for="token-input">Attendance token</label>
+      <input id="token-input" class="mono" placeholder="eyJ2IjoxLCJzIjoiTEVDLS4uLiJ9" value="{{ token }}">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Step 2 &middot; Confirm your identity</h2>
+    </div>
+
+    <form id="mark-form">
+      <div class="field">
+        <label for="roll-input">Roll number</label>
+        <input id="roll-input" placeholder="BCOE23AI001" required autocomplete="off"
+               style="text-transform:uppercase;font-family:var(--mono);">
+      </div>
+
+      <div class="callout info" style="margin-bottom:14px;">
+        <h4>Signing mode</h4>
+        <p style="font-size:12.5px;">
+          Your attendance transaction is signed with a <strong>secp256k1</strong> key pair.
+          In this deployment the college holds the key for you (custodial mode), which keeps
+          the system working on any phone with no setup. See
+          <code class="mono">app/services/identity.py</code> for the non-custodial option,
+          where the key stays on your device.
+        </p>
+      </div>
+
+      <button class="btn btn-primary btn-block" type="submit" id="mark-btn">
+        Mark my attendance
+      </button>
+    </form>
+
+    <div id="result" style="margin-top:16px;display:none;"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="card-head"><h2>Already marked?</h2></div>
+    <p class="small" style="margin-bottom:10px;">Look up any transaction by its id to see the full proof.</p>
+    <div class="row">
+      <input id="lookup-tx" class="mono" placeholder="Transaction id" style="flex:1;min-width:220px;">
+      <button class="btn btn-sm" id="lookup-btn">Verify</button>
+    </div>
+    <div id="lookup-result" style="margin-top:12px;"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/vendor/jsQR.js') }}"></script>
+<script>
+let stream = null;
+let scanLoop = null;
+
+/* ------------------------------------------------------------ camera scan */
+document.getElementById("start-camera").addEventListener("click", async () => {
+  const badge = document.getElementById("camera-badge");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    const video = document.getElementById("video");
+    video.srcObject = stream;
+    await video.play();
+    document.getElementById("camera-overlay").style.display = "none";
+    badge.className = "badge badge-ok";
+    badge.innerHTML = '<span class="dot pulse"></span> scanning';
+
+    const canvas = document.getElementById("analyzer");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+
+    scanLoop = setInterval(() => {
+      if (!video.videoWidth) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const decoded = decodeQrFromCanvas(canvas);
+      if (decoded) {
+        // A scanned QR may be either a raw token or a full scan URL.
+        let token = decoded.trim();
+        if (token.includes("token=")) {
+          try { token = new URL(token, window.location.origin).searchParams.get("token") || token; } catch (e) {}
+        }
+        document.getElementById("token-input").value = token;
+        stopCamera();
+        toast("QR code captured — enter your roll number to finish", "ok");
+        document.getElementById("roll-input").focus();
+      }
+    }, 350);
+  } catch (error) {
+    badge.className = "badge badge-bad";
+    badge.innerHTML = '<span class="dot"></span> unavailable';
+    toast(`Camera unavailable: ${error.message}. Paste the token instead.`, "warn", 7000);
+  }
+});
+
+function stopCamera() {
+  if (scanLoop) { clearInterval(scanLoop); scanLoop = null; }
+  if (stream) { stream.getTracks().forEach((track) => track.stop()); stream = null; }
+  const badge = document.getElementById("camera-badge");
+  badge.className = "badge badge-plain";
+  badge.textContent = "camera idle";
+  document.getElementById("camera-overlay").style.display = "grid";
+  document.getElementById("camera-overlay").textContent = "Camera stopped";
+}
+document.getElementById("stop-camera").addEventListener("click", stopCamera);
+
+/* --------------------------------------------------------------- marking */
+document.getElementById("mark-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = document.getElementById("mark-btn");
+  const token = document.getElementById("token-input").value.trim();
+  const roll = document.getElementById("roll-input").value.trim().toUpperCase();
+  const startedAt = performance.now();
+
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner"></span> Signing and submitting…';
+
+  try {
+    const result = await api("/api/attendance/mark", {
+      method: "POST",
+      body: JSON.stringify({
+        token, roll_no: roll,
+        device_id: deviceId(),
+        client_latency_ms: Math.round(performance.now() - startedAt),
+      }),
+    });
+    renderReceipt(result);
+    toast("Attendance recorded", "ok");
+  } catch (error) {
+    document.getElementById("result").style.display = "block";
+    document.getElementById("result").innerHTML = `
+      <div class="callout bad">
+        <h4>Not recorded &middot; <code class="mono">${escapeHtml(error.code || "ERROR")}</code></h4>
+        <p>${escapeHtml(error.message)}</p>
+      </div>`;
+    toast(error.message, "bad", 7000);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Mark my attendance";
+  }
+});
+
+function renderReceipt(result) {
+  const statusColour = { PRESENT: "ok", LATE: "warn", MANUAL: "info" }[result.status] || "info";
+  document.getElementById("result").style.display = "block";
+  document.getElementById("result").innerHTML = `
+    <div class="callout ${statusColour}">
+      <h4>${escapeHtml(result.status)} &middot; ${escapeHtml(result.student_name)}</h4>
+      <p>${escapeHtml(result.message)}</p>
+    </div>
+    <dl class="dl" style="margin-top:14px;">
+      <dt>Subject</dt><dd>${escapeHtml(result.subject_code)}</dd>
+      <dt>Marked at</dt><dd>${formatTime(result.marked_at)}</dd>
+      <dt>Transaction id</dt><dd><span class="hash copy-hash" data-copy="${escapeHtml(result.tx_id)}">${escapeHtml(result.tx_id)}</span></dd>
+      <dt>Signature</dt><dd><span class="hash">${escapeHtml(shortHash(result.signature, 16, 8))}</span></dd>
+      <dt>On chain</dt><dd>${result.on_chain
+        ? `block <a href="/block/${result.block_index}">#${result.block_index}</a>`
+        : "pending — will be sealed when the lecture ends"}</dd>
+      ${result.merkle_root ? `<dt>Merkle root</dt><dd><span class="hash">${escapeHtml(shortHash(result.merkle_root, 16, 8))}</span></dd>` : ""}
+    </dl>
+    <div class="row" style="margin-top:12px;">
+      <a class="btn btn-sm btn-primary" href="/verify?tx_id=${encodeURIComponent(result.tx_id)}">Open full proof</a>
+    </div>`;
+}
+
+/* ---------------------------------------------------------------- lookup */
+document.getElementById("lookup-btn").addEventListener("click", async () => {
+  const txId = document.getElementById("lookup-tx").value.trim();
+  if (!txId) return;
+  const target = document.getElementById("lookup-result");
+  target.innerHTML = '<span class="spinner"></span>';
+  try {
+    const data = await api(`/api/chain/transactions/${encodeURIComponent(txId)}`);
+    const record = data.record || {};
+    target.innerHTML = `
+      <div class="callout ${record.status === "PRESENT" ? "ok" : "info"}">
+        <h4>${escapeHtml(record.status || "recorded")} — ${escapeHtml(record.student_name || "")}</h4>
+        <p>${data.on_chain ? `Sealed in block #${data.block.index}` : "Not yet sealed into a block"}</p>
+      </div>`;
+  } catch (error) {
+    target.innerHTML = `<div class="callout bad"><p>${escapeHtml(error.message)}</p></div>`;
+  }
+});
+
+if (document.getElementById("token-input").value.trim()) {
+  document.getElementById("roll-input").focus();
+}
+</script>
+{% endblock %}

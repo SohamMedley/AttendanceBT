@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block heading %}{{ student.name }}{% endblock %}
+{% block subheading %}{{ student.roll_no }} &middot; {{ student.year }} &ndash; {{ student.division }} &middot; {{ student.batch }}{% endblock %}
+
+{% block topbar_actions %}
+  <a class="btn btn-sm" href="{{ url_for('pages.dashboard') }}">&larr; Console</a>
+  <button class="btn btn-sm" onclick="window.print()">Print report</button>
+{% endblock %}
+
+{% block content %}
+
+{% set overall = report.overall %}
+<div class="grid grid-4" style="margin-bottom:16px;">
+  <div class="stat {{ 'good' if overall.percentage >= 75 else 'bad' }}">
+    <div class="label">Overall attendance</div>
+    <div class="value">{{ overall.percentage }}%</div>
+    <div class="foot">{{ overall.attended }} of {{ overall.held }} lectures</div>
+  </div>
+  <div class="stat">
+    <div class="label">Eligibility</div>
+    <div class="value" style="font-size:19px;margin-top:8px;">
+      {% if overall.eligible %}
+        <span class="badge badge-ok"><span class="dot"></span> ELIGIBLE</span>
+      {% else %}
+        <span class="badge badge-bad"><span class="dot"></span> SHORT</span>
+      {% endif %}
+    </div>
+    <div class="foot">{{ overall.minimum_required }}% required by {{ college.affiliation }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Subjects below 75%</div>
+    <div class="value">{{ overall.defaulting_subjects | length }}</div>
+    <div class="foot">{{ overall.defaulting_subjects | join(', ') if overall.defaulting_subjects else 'none' }}</div>
+  </div>
+  <div class="stat chain">
+    <div class="label">Signed records</div>
+    <div class="value">{{ recent | length }}</div>
+    <div class="foot">on the attendance blockchain</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-head">
+    <h2>Subject-wise attendance</h2>
+    <span class="hint">75% University of Mumbai requirement</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Code</th><th>Subject</th><th class="num">Held</th><th class="num">Attended</th><th class="num">Late</th><th class="num">%</th><th style="width:18%;">Progress</th><th>Status</th><th class="num">To recover</th></tr>
+      </thead>
+      <tbody>
+        {% for row in report.subjects %}
+        <tr>
+          <td class="mono" style="font-size:11.5px;">{{ row.subject_code }}</td>
+          <td>{{ row.subject_name | truncate(34) }}</td>
+          <td class="num">{{ row.held }}</td>
+          <td class="num">{{ row.attended }}</td>
+          <td class="num s-LATE">{{ row.late }}</td>
+          <td class="num"><strong>{{ row.percentage }}%</strong></td>
+          <td>
+            <div class="progress {% if row.percentage < 60 %}bad{% elif row.percentage < 75 %}warn{% endif %}">
+              <span style="width:{{ [row.percentage, 100] | min }}%;"></span>
+            </div>
+          </td>
+          <td>
+            {% if row.eligible %}<span class="badge badge-ok">ok</span>
+            {% else %}<span class="badge badge-bad">short</span>{% endif %}
+          </td>
+          <td class="num small">
+            {% if row.lectures_to_recover %}{{ row.lectures_to_recover }} lectures{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small" style="margin-top:10px;">
+    "To recover" solves <code class="mono">(attended + x) / (held + x) ≥ 0.75</code> for the
+    smallest number of consecutive lectures <code class="mono">x</code>.
+  </p>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Identity on the chain</h2></div>
+    <dl class="dl">
+      <dt>Public key (secp256k1)</dt><dd><span class="hash">{{ student.public_key }}</span></dd>
+      <dt>Wallet address</dt><dd><span class="hash copy-hash" data-copy="{{ student.address }}">{{ student.address }}</span></dd>
+      <dt>Address scheme</dt><dd class="small">Base58Check(RIPEMD160(SHA256(pubkey)))</dd>
+      <dt>Email</dt><dd class="small">{{ student.email }}</dd>
+      <dt>Batch</dt><dd class="small">{{ student.batch }}</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Recent records</h2></div>
+    <div class="table-wrap scroll-y">
+      <table>
+        <thead><tr><th>Date</th><th>Subject</th><th>Status</th><th>Transaction</th></tr></thead>
+        <tbody>
+          {% for record in recent %}
+          <tr>
+            <td class="small">{{ record.marked_at | datetime }}</td>
+            <td class="mono" style="font-size:11.5px;">{{ record.subject_code }}</td>
+            <td class="s-{{ record.status }}">{{ record.status }}</td>
+            <td><a class="hash" href="{{ url_for('pages.verify_page') }}?tx_id={{ record.tx_id }}">{{ record.tx_id | short_hash(8, 6) }}</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No attendance records yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

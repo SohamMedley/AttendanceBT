@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block subheading %}Independently check any attendance record against the chain{% endblock %}
+
+{% block content %}
+<div style="max-width:900px;margin:0 auto;">
+
+  <div class="card">
+    <div class="card-head"><h2>Verify a transaction</h2></div>
+    <form method="get" class="row" style="align-items:flex-end;">
+      <div class="field" style="flex:1;min-width:260px;margin:0;">
+        <label for="tx_id">Transaction id</label>
+        <input id="tx_id" name="tx_id" class="mono" value="{{ tx_id }}" placeholder="64-character hex hash" required>
+      </div>
+      <button class="btn btn-primary" type="submit">Verify</button>
+    </form>
+    <p class="small" style="margin-top:10px;">
+      This re-derives everything from scratch: the transaction id from its content, the
+      ECDSA signature against the sender's public key, the Merkle proof up to the block
+      root, and the block's Proof-of-Work. Nothing stored in the database is trusted.
+    </p>
+  </div>
+
+  {% if tx_id and not receipt %}
+    <div class="callout bad" style="margin-top:16px;">
+      <h4>Not found</h4>
+      <p>No transaction with that id exists on this chain. Check for a typo, or the record
+         may not have been sealed into a block yet.</p>
+    </div>
+  {% endif %}
+
+  {% if receipt %}
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head">
+        <h2>Result</h2>
+        {% if receipt.on_chain %}
+          <span class="badge badge-ok"><span class="dot"></span> on chain</span>
+        {% else %}
+          <span class="badge badge-warn"><span class="dot"></span> pending</span>
+        {% endif %}
+      </div>
+
+      {% set record = receipt.record %}
+      <div class="callout {{ 'ok' if receipt.on_chain else 'warn' }}">
+        <h4>{{ record.student_name }} &middot; {{ record.status }}</h4>
+        <p>
+          {{ record.subject_code }} — {{ record.subject_name }}<br>
+          Marked {{ record.marked_at | datetime }}
+          {%- if receipt.block %} &middot; sealed in block <a href="{{ url_for('pages.block_view', index=receipt.block.index) }}">#{{ receipt.block.index }}</a>{% endif %}
+        </p>
+      </div>
+
+      <div class="grid grid-3" style="margin-top:16px;">
+        <div class="stat {{ 'good' if receipt.tx_id_valid else 'bad' }}">
+          <div class="label">Transaction id</div>
+          <div class="value" style="font-size:17px;">{{ 'VALID' if receipt.tx_id_valid else 'MISMATCH' }}</div>
+          <div class="foot">recomputed from the payload</div>
+        </div>
+        <div class="stat {{ 'good' if receipt.signature_valid else 'bad' }}">
+          <div class="label">ECDSA signature</div>
+          <div class="value" style="font-size:17px;">{{ 'VALID' if receipt.signature_valid else 'INVALID' }}</div>
+          <div class="foot">secp256k1, low-S form</div>
+        </div>
+        <div class="stat {{ 'good' if receipt.merkle_proof_verified else 'bad' }}">
+          <div class="label">Merkle proof</div>
+          <div class="value" style="font-size:17px;">{{ 'VERIFIED' if receipt.merkle_proof_verified else 'FAILED' }}</div>
+          <div class="foot">{{ receipt.merkle_proof.proof | length }} hash steps to the root</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="card-head"><h3>Merkle inclusion proof</h3><span class="hint">proves this record is in the block, without revealing the others</span></div>
+      <pre class="code">leaf      = SHA256(0x00 || "{{ receipt.tx_id }}")
+{% for step in receipt.merkle_proof.proof %}parent    = SHA256(0x01 || {{ 'sibling || current' if step.position == 'left' else 'current || sibling' }})
+            sibling = {{ step.hash }}
+{% endfor %}root      = {{ receipt.merkle_proof.merkle_root }}
+expected  = {{ receipt.block.merkle_root }}
+match     = {{ 'TRUE' if receipt.merkle_proof_verified else 'FALSE' }}</pre>
+
+      <div class="divider"></div>
+      <dl class="dl">
+        <dt>Transaction id</dt><dd><span class="hash copy-hash" data-copy="{{ receipt.tx_id }}">{{ receipt.tx_id }}</span></dd>
+        <dt>Student roll no.</dt><dd class="mono">{{ record.student_roll }}</dd>
+        <dt>Signed by (public key)</dt><dd><span class="hash">{{ receipt.transaction.sender_pubkey }}</span></dd>
+        <dt>Signature</dt><dd><span class="hash">{{ receipt.transaction.signature }}</span></dd>
+        <dt>Block hash</dt><dd><span class="hash copy-hash" data-copy="{{ receipt.block.hash }}">{{ receipt.block.hash }}</span></dd>
+        <dt>Proof-of-Work</dt><dd>{{ 'valid at difficulty ' ~ receipt.block.difficulty if receipt.block_pow_valid else 'INVALID' }}</dd>
+        <dt>Nonce</dt><dd class="mono">{{ receipt.block.nonce }}</dd>
+      </dl>
+
+      <div class="row" style="margin-top:16px;">
+        <button class="btn btn-sm" onclick="window.print()">Print receipt</button>
+        <a class="btn btn-sm" href="{{ url_for('chain_api.get_transaction', tx_id=receipt.tx_id) }}">Raw JSON</a>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block subheading %}Start a roll call, watch the chain update, and review every subject{% endblock %}
+
+{% block topbar_actions %}
+  {% if open_session %}
+    <a class="btn btn-sm btn-ok" href="{{ url_for('pages.session_view', session_id=open_session.session_id) }}">
+      <span class="dot pulse" style="width:8px;height:8px;border-radius:50%;background:#04140d;"></span>
+      Resume live session
+    </a>
+  {% endif %}
+  <a class="btn btn-sm" href="{{ url_for('analytics_api.export_csv') }}">Export CSV</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="grid grid-4" style="margin-bottom:16px;">
+  <div class="stat accent"><div class="label">Registered students</div><div class="value">{{ dashboard.totals.students }}</div><div class="foot">{{ dashboard.totals.subjects }} subjects on offer</div></div>
+  <div class="stat"><div class="label">Lectures held</div><div class="value">{{ dashboard.totals.sessions }}</div><div class="foot">{{ dashboard.totals.open_sessions }} currently open</div></div>
+  <div class="stat good"><div class="label">Marks today</div><div class="value">{{ dashboard.totals.marks_today }}</div><div class="foot">across all subjects</div></div>
+  <div class="stat chain"><div class="label">Blocks</div><div class="value">{{ dashboard.totals.blocks }}</div><div class="foot">{{ dashboard.totals.anchors }} public anchors</div></div>
+</div>
+
+<div class="grid grid-2">
+
+  <!-- ============================ START A SESSION ============================ -->
+  <div class="card" id="start-session">
+    <div class="card-head">
+      <h2>Start a lecture session</h2>
+      <span class="badge badge-info"><span class="dot"></span> rotating QR</span>
+    </div>
+
+    {% if open_session %}
+      <div class="callout warn" style="margin-bottom:14px;">
+        <h4>A session is already open</h4>
+        <p>
+          <strong>{{ open_session.subject_code }} — {{ open_session.subject_name }}</strong><br>
+          Started {{ open_session.started_at | time_only }} in {{ open_session.room }},
+          {{ open_session.marked_count }} of {{ open_session.expected_count }} students marked.
+        </p>
+        <div class="row" style="margin-top:10px;">
+          <a class="btn btn-sm btn-primary" href="{{ url_for('pages.session_view', session_id=open_session.session_id) }}">Open session screen</a>
+          <button class="btn btn-sm btn-bad" onclick="closeSession('{{ open_session.session_id }}')">Close &amp; seal block</button>
+        </div>
+      </div>
+    {% endif %}
+
+    <form id="session-form">
+      <div class="form-row">
+        <div class="field">
+          <label for="subject_code">Subject</label>
+          <select id="subject_code" required>
+            {% for subject in subjects %}
+              <option value="{{ subject.code }}" data-room="{{ subject.default_room }}" data-year="{{ subject.year }}">
+                {{ subject.code }} — {{ subject.name }} ({{ subject.year }} Sem {{ subject.semester }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="faculty_id">Faculty</label>
+          <select id="faculty_id" required>
+            {% for member in faculty %}
+              <option value="{{ member.faculty_id }}">{{ member.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="room">Room</label>
+          <input id="room" value="Lab 305" required>
+        </div>
+        <div class="field">
+          <label for="duration">Duration (minutes)</label>
+          <input id="duration" type="number" value="60" min="5" max="240">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" id="start-btn">
+        Open session &amp; display QR code
+      </button>
+      <p class="small" style="margin-top:9px;">
+        The QR code contains a signed token that changes every
+        {{ chain_difficulty and 30 }} seconds. Screenshots stop working almost immediately.
+      </p>
+    </form>
+  </div>
+
+  <!-- ============================== SUBJECTS ============================== -->
+  <div class="card">
+    <div class="card-head"><h2>Attendance by subject</h2></div>
+    <div class="table-wrap scroll-y">
+      <table>
+        <thead><tr><th>Subject</th><th class="num">Held</th><th class="num">Avg</th><th style="width:22%;">Progress</th></tr></thead>
+        <tbody>
+          {% for subject in dashboard.subjects %}
+          <tr>
+            <td><strong class="mono" style="font-size:11.5px;">{{ subject.subject_code }}</strong><br><span class="small">{{ subject.subject_name | truncate(34) }}</span></td>
+            <td class="num">{{ subject.sessions_held }}</td>
+            <td class="num">{{ subject.average_percentage }}%</td>
+            <td>
+              <div class="progress {% if subject.average_percentage < 60 %}bad{% elif subject.average_percentage < 75 %}warn{% endif %}">
+                <span style="width:{{ [subject.average_percentage, 100] | min }}%;"></span>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No subjects yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== SESSIONS ============================== -->
+<div class="card" style="margin-top:16px;">
+  <div class="card-head">
+    <h2>Recent sessions</h2>
+    <span class="hint">one lecture = one block</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Session</th><th>Subject</th><th>Room</th><th>Started</th><th class="num">Marked</th><th class="num">Present</th><th class="num">Late</th><th>Status</th><th>Block</th></tr>
+      </thead>
+      <tbody>
+        {% for session in sessions %}
+        <tr>
+          <td><a class="mono" style="font-size:11px;" href="{{ url_for('pages.session_view', session_id=session.session_id) }}">{{ session.session_id | short_hash(14, 6) }}</a></td>
+          <td><strong class="mono" style="font-size:11.5px;">{{ session.subject_code }}</strong><br><span class="small">{{ session.subject_name | truncate(26) }}</span></td>
+          <td class="small">{{ session.room }}</td>
+          <td class="small">{{ session.started_at | datetime }}</td>
+          <td class="num">{{ session.marked_count }}<span class="small">/{{ session.expected_count }}</span></td>
+          <td class="num s-PRESENT">{{ session.present_count }}</td>
+          <td class="num s-LATE">{{ session.late_count }}</td>
+          <td>
+            {% if session.status == 'OPEN' %}<span class="badge badge-ok"><span class="dot pulse"></span> open</span>
+            {% elif session.status == 'CLOSED' %}<span class="badge badge-plain">sealed</span>
+            {% else %}<span class="badge badge-warn">{{ session.status | lower }}</span>{% endif %}
+          </td>
+          <td>
+            {% if session.block_index is not none %}
+              <a class="hash" href="{{ url_for('pages.block_view', index=session.block_index) }}">#{{ session.block_index }}</a>
+            {% else %}<span class="small">pending</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="empty">No sessions yet. Start one above, or run <code class="mono">python manage.py demo</code>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================== STUDENTS ============================== -->
+<div class="card" id="students" style="margin-top:16px;">
+  <div class="card-head">
+    <h2>Students</h2>
+    <input id="student-search" placeholder="Search by name or roll number…" style="max-width:300px;">
+  </div>
+  <div class="table-wrap scroll-y">
+    <table id="student-table">
+      <thead><tr><th>Roll no.</th><th>Name</th><th>Year</th><th>Batch</th><th>Wallet address</th><th></th></tr></thead>
+      <tbody>
+        {% for student in students %}
+        <tr data-search="{{ (student.roll_no ~ ' ' ~ student.name) | lower }}">
+          <td class="mono" style="font-size:11.5px;">{{ student.roll_no }}</td>
+          <td>{{ student.name }}</td>
+          <td>{{ student.year }} / {{ student.division }}</td>
+          <td class="small">{{ student.batch }}</td>
+          <td><span class="hash copy-hash" data-copy="{{ student.address }}">{{ student.address | short_hash(8, 6) }}</span></td>
+          <td><a class="btn btn-sm btn-ghost" href="{{ url_for('pages.student_view', roll_no=student.roll_no) }}">Report</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById("session-form");
+if (form) {
+  const subjectSelect = document.getElementById("subject_code");
+  const roomInput = document.getElementById("room");
+  subjectSelect.addEventListener("change", () => {
+    const option = subjectSelect.selectedOptions[0];
+    if (option && option.dataset.room) roomInput.value = option.dataset.room;
+  });
+  if (subjectSelect.selectedOptions[0]?.dataset.room) {
+    roomInput.value = subjectSelect.selectedOptions[0].dataset.room;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = document.getElementById("start-btn");
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span> Opening session…';
+    try {
+      const option = subjectSelect.selectedOptions[0];
+      const result = await api("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          subject_code: subjectSelect.value,
+          faculty_id: document.getElementById("faculty_id").value,
+          room: roomInput.value,
+          duration_minutes: Number(document.getElementById("duration").value),
+          year: option.dataset.year || "BE",
+          division: "A",
+        }),
+      });
+      toast("Session opened — displaying QR code", "ok");
+      window.location.href = `/session/${result.session.session_id}`;
+    } catch (error) {
+      toast(error.message, "bad", 6000);
+      button.disabled = false;
+      button.textContent = "Open session & display QR code";
+    }
+  });
+}
+
+async function closeSession(sessionId) {
+  if (!confirm("Close this session and seal all pending attendance into a new block?")) return;
+  try {
+    const result = await api(`/api/sessions/${sessionId}/close`, { method: "POST", body: "{}" });
+    const block = result.session.sealed_block;
+    toast(block
+      ? `Session closed. Block #${block.index} sealed with ${result.session.marked_count} records.`
+      : "Session closed. Nothing was pending, so no new block was needed.", "ok", 6000);
+    setTimeout(() => window.location.reload(), 1500);
+  } catch (error) {
+    toast(error.message, "bad", 6000);
+  }
+}
+
+const search = document.getElementById("student-search");
+if (search) {
+  search.addEventListener("input", () => {
+    const term = search.value.trim().toLowerCase();
+    document.querySelectorAll("#student-table tbody tr").forEach((row) => {
+      row.style.display = !term || (row.dataset.search || "").includes(term) ? "" : "none";
+    });
+  });
+}
+</script>
+{% endblock %}

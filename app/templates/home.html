@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block subheading %}{{ college.name }} &middot; {{ college.address }} &middot; {{ college.affiliation }}{% endblock %}
+
+{% block topbar_actions %}
+  <a class="btn btn-sm" href="{{ url_for('pages.explorer') }}">Explorer</a>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('pages.dashboard') }}">Faculty Console</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="grid grid-4" style="margin-bottom:16px;">
+  <div class="stat accent">
+    <div class="label">Students on register</div>
+    <div class="value">{{ dashboard.totals.students }}</div>
+    <div class="foot">CSE (AI &amp; ML) &middot; TE &amp; BE</div>
+  </div>
+  <div class="stat chain">
+    <div class="label">Blocks sealed</div>
+    <div class="value">{{ dashboard.totals.blocks }}</div>
+    <div class="foot">height {{ dashboard.totals.chain_height }} &middot; difficulty {{ chain_difficulty }}</div>
+  </div>
+  <div class="stat good">
+    <div class="label">Attendance records</div>
+    <div class="value">{{ dashboard.totals.attendance_records }}</div>
+    {# A record only exists when a student scans, so "attended" and "records" are
+       close by construction; the honest headline is the average attendance. #}
+    <div class="foot">
+      across {{ dashboard.totals.sessions }} lectures &middot;
+      {{ dashboard.average_attendance_percentage }}% average turnout
+    </div>
+  </div>
+  <div class="stat">
+    <div class="label">Integrity</div>
+    <div class="value" style="font-size:20px;">
+      {% if dashboard.totals.integrity == 'VERIFIED' %}
+        <span class="badge badge-ok"><span class="dot pulse"></span> VERIFIED</span>
+      {% else %}
+        <span class="badge badge-bad"><span class="dot"></span> FAILED</span>
+      {% endif %}
+    </div>
+    <div class="foot">{{ signature_audit.blocks_signature_verified }}/{{ signature_audit.blocks_with_transactions }} blocks signature-audited</div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head">
+      <h2>What this system is</h2>
+      <span class="badge badge-chain"><span class="dot"></span> Blockchain</span>
+    </div>
+    <p class="muted" style="font-size:13.5px;">
+      Attendance is captured by scanning a <strong>rotating QR code</strong> shown by the faculty member.
+      Every mark becomes a transaction signed with the student's <strong>secp256k1</strong> key.
+      Transactions are sealed into <strong>Proof-of-Work</strong> blocks linked by SHA-256 hashes,
+      and each block carries a <strong>Merkle root</strong> committing to every record inside it.
+    </p>
+    <div class="divider"></div>
+    <p class="muted" style="font-size:13.5px;">
+      Because the blockchain lives on one campus server, records are periodically
+      <strong>anchored</strong> to a public ledger &mdash; only a 32-byte hash leaves the building,
+      so attendance stays confidential while becoming provably unaltered.
+    </p>
+    <div class="row" style="margin-top:14px;">
+      <a class="btn btn-sm" href="{{ url_for('pages.explorer') }}">Open the explorer</a>
+      <a class="btn btn-sm" href="{{ url_for('pages.anchors_page') }}">Anchoring</a>
+      <a class="btn btn-sm" href="{{ url_for('pages.audit_page') }}">Tamper lab</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Live chain</h2>
+      <a class="hint" href="{{ url_for('pages.explorer') }}">view all &rarr;</a>
+    </div>
+    <dl class="dl">
+      <dt>Genesis hash</dt><dd><span class="hash copy-hash" data-copy="{{ chain_stats.genesis_hash }}">{{ chain_stats.genesis_hash | short_hash }}</span></dd>
+      <dt>Chain head</dt><dd><span class="hash copy-hash" data-copy="{{ chain_stats.head_hash }}">{{ chain_stats.head_hash | short_hash }}</span></dd>
+      <dt>Sealed transactions</dt><dd>{{ chain_stats.sealed_attendance_transactions | thousands }}</dd>
+      <dt>Hash attempts</dt><dd>{{ chain_stats.total_hash_attempts | thousands }}</dd>
+      <dt>Total mining time</dt><dd>{{ chain_stats.total_mining_seconds }} s</dd>
+      <dt>On-disk size</dt><dd>{{ (chain_stats.estimated_bytes_on_disk / 1024) | round(1) }} KB</dd>
+      <dt>Storage backend</dt><dd><code class="mono">{{ storage_backend }}</code></dd>
+      <dt>Anchor provider</dt><dd><code class="mono">{{ dashboard.recent_anchors[0].provider if dashboard.recent_anchors else 'not configured' }}</code></dd>
+    </dl>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:16px;">
+  <div class="card">
+    <div class="card-head"><h2>Attendance trend (14 days)</h2></div>
+    {% set max_total = (dashboard.trend | map(attribute='total') | max) or 1 %}
+    <div style="display:flex;align-items:flex-end;gap:5px;height:150px;">
+      {% for day in dashboard.trend %}
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;"
+             title="{{ day.label }}: {{ day.present }} present, {{ day.late }} late, {{ day.manual }} manual">
+          <div style="background:var(--ok);height:{{ (day.present / max_total * 100) | round(1) }}%;border-radius:3px 3px 0 0;min-height:{{ 3 if day.present else 0 }}px;"></div>
+          <div style="background:var(--warn);height:{{ (day.late / max_total * 100) | round(1) }}%;min-height:{{ 3 if day.late else 0 }}px;"></div>
+          <div style="background:var(--info);height:{{ (day.manual / max_total * 100) | round(1) }}%;min-height:{{ 3 if day.manual else 0 }}px;"></div>
+          <div class="small" style="text-align:center;font-size:9.5px;margin-top:5px;white-space:nowrap;overflow:hidden;">{{ day.label }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="row" style="margin-top:10px;font-size:11.5px;">
+      <span><span style="display:inline-block;width:9px;height:9px;background:var(--ok);border-radius:2px;"></span> Present</span>
+      <span><span style="display:inline-block;width:9px;height:9px;background:var(--warn);border-radius:2px;"></span> Late</span>
+      <span><span style="display:inline-block;width:9px;height:9px;background:var(--info);border-radius:2px;"></span> Manual override</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Attendance by subject</h2>
+      <span class="hint">75% required by {{ college.affiliation }}</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Subject</th><th class="num">Lectures</th><th class="num">Average</th><th style="width:26%;">Progress</th></tr></thead>
+        <tbody>
+          {% for subject in dashboard.subjects %}
+            <tr>
+              <td><strong class="mono" style="font-size:11.5px;">{{ subject.subject_code }}</strong><br><span class="small">{{ subject.subject_name | truncate(38) }}</span></td>
+              <td class="num">{{ subject.sessions_held }}</td>
+              <td class="num">{{ subject.average_percentage }}%</td>
+              <td>
+                <div class="progress {% if subject.average_percentage < 60 %}bad{% elif subject.average_percentage < 75 %}warn{% endif %}">
+                  <span style="width:{{ [subject.average_percentage, 100] | min }}%;"></span>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty">No sessions recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if anchors %}
+<div class="card" style="margin-top:16px;">
+  <div class="card-head">
+    <h2>Public-chain anchors</h2>
+    <a class="hint" href="{{ url_for('pages.anchors_page') }}">all anchors &rarr;</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Anchor</th><th>Provider</th><th>Merkle root</th><th class="num">Records</th><th>When</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for anchor in anchors %}
+        <tr>
+          <td class="mono" style="font-size:11.5px;">{{ anchor.anchor_id }}</td>
+          <td>{{ anchor.provider }}</td>
+          <td><span class="hash copy-hash" data-copy="{{ anchor.merkle_root }}">{{ anchor.merkle_root | short_hash(8, 6) }}</span></td>
+          <td class="num">{{ anchor.records_anchored }}</td>
+          <td class="small">{{ anchor.created_at | datetime }}</td>
+          <td>
+            {% if anchor.status == 'SUBMITTED' %}<span class="badge badge-ok">submitted</span>
+            {% elif anchor.status == 'PENDING' %}<span class="badge badge-info">pending</span>
+            {% elif anchor.status == 'SIMULATED' %}<span class="badge badge-warn">simulated</span>
+            {% elif anchor.status == 'PREPARED' %}<span class="badge badge-info">prepared</span>
+            {% else %}<span class="badge badge-bad">failed</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-head"><h2>Recent attendance</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Roll no.</th><th>Student</th><th>Subject</th><th>Status</th><th>Marked</th><th>Transaction</th></tr></thead>
+      <tbody>
+        {% for record in dashboard.recent_attendance[:12] %}
+        <tr>
+          <td class="mono" style="font-size:11.5px;">{{ record.student_roll }}</td>
+          <td>{{ record.student_name }}</td>
+          <td class="mono" style="font-size:11.5px;">{{ record.subject_code }}</td>
+          <td><span class="{{ status_class if false else '' }}s-{{ record.status }}">{{ record.status }}</span></td>
+          <td class="small">{{ record.marked_at | datetime }}</td>
+          <td><a class="hash" href="{{ url_for('pages.verify_page') }}?tx_id={{ record.tx_id }}">{{ record.tx_id | short_hash(8, 6) }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No records yet. Run <code class="mono">python manage.py demo</code> to generate history.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

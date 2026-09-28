@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block subheading %}Signature audit, fraud detection and the immutable action trail{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-sm btn-primary" id="deep-audit-btn">Run deep signature audit</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="grid grid-4" style="margin-bottom:16px;">
+  <div class="stat {{ 'good' if audit_status.complete else 'warn' }}">
+    <div class="label">Signature audit</div>
+    <div class="value">{{ audit_status.blocks_signature_verified }}/{{ audit_status.blocks_with_transactions }}</div>
+    <div class="foot">{{ audit_status.blocks_pending }} block(s) pending</div>
+  </div>
+  <div class="stat chain"><div class="label">Signatures on chain</div><div class="value">{{ audit_status.signatures_on_chain }}</div><div class="foot">every record is signed</div></div>
+  <div class="stat {{ 'bad' if anomalies.by_severity.HIGH else 'good' }}">
+    <div class="label">High-severity alerts</div>
+    <div class="value">{{ anomalies.by_severity.HIGH }}</div>
+    <div class="foot">{{ anomalies.alert_count }} alerts in total</div>
+  </div>
+  <div class="stat"><div class="label">Audit entries</div><div class="value">{{ audit | length }}</div><div class="foot">session and admin actions</div></div>
+</div>
+
+<div id="audit-result" style="margin-bottom:16px;"></div>
+
+<div class="callout info" style="margin-bottom:16px;">
+  <h4>How the signature audit stays affordable</h4>
+  <p>
+    Verifying one ECDSA signature in pure Python costs about 25&nbsp;ms, so a deep audit
+    of a few thousand records takes tens of seconds the first time. Results are cached
+    <strong>per block hash</strong>. Because a block hash commits to every transaction in
+    the block, altering anything inside it changes the hash, misses the cache, and forces
+    a re-verification — so the cache can never hide a modification. Subsequent audits
+    complete in milliseconds.
+  </p>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head">
+      <h2>Anomaly detection</h2>
+      <span class="hint">{{ anomalies.scanned_records }} records scanned</span>
+    </div>
+    <div class="row" style="margin-bottom:13px;gap:7px;">
+      <span class="badge badge-bad">{{ anomalies.by_severity.HIGH }} high</span>
+      <span class="badge badge-warn">{{ anomalies.by_severity.MEDIUM }} medium</span>
+      <span class="badge badge-plain">{{ anomalies.by_severity.LOW }} low</span>
+    </div>
+    <div class="scroll-y" style="max-height:520px;">
+      {% for alert in anomalies.alerts %}
+        <div class="issue {% if alert.severity == 'MEDIUM' %}warn{% elif alert.severity == 'LOW' %}warn{% endif %}" style="{% if alert.severity == 'LOW' %}border-left-color:var(--info);background:var(--info-soft);{% endif %}">
+          <div class="spread">
+            <span class="code">{{ alert.rule }}</span>
+            <span class="badge {% if alert.severity == 'HIGH' %}badge-bad{% elif alert.severity == 'MEDIUM' %}badge-warn{% else %}badge-info{% endif %}">{{ alert.severity }}</span>
+          </div>
+          <div style="font-size:12.5px;margin-top:4px;">{{ alert.message }}</div>
+          {% if alert.observed is not none %}
+            <div class="small" style="margin-top:4px;">observed <strong>{{ alert.observed }}</strong> vs threshold <strong>{{ alert.threshold }}</strong></div>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="empty">No anomalies detected.</div>
+      {% endfor %}
+    </div>
+    <div class="divider"></div>
+    <p class="small">
+      Detectors: {% for detector in anomalies.detectors %}<code class="mono">{{ detector }}</code>{{ ", " if not loop.last }}{% endfor %}.
+      Rules are deliberately transparent — an unexplainable flag that can fail a student is
+      worse than no flag. <code class="mono">AnomalyScorer</code> in
+      <code class="mono">app/services/anomaly.py</code> is the seam for a future ML model.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Action trail</h2><span class="hint">append-only</span></div>
+    <div class="table-wrap scroll-y" style="max-height:580px;">
+      <table>
+        <thead><tr><th>When</th><th>Action</th><th>Actor</th><th>Target</th></tr></thead>
+        <tbody>
+          {% for entry in audit %}
+          <tr>
+            <td class="small nowrap">{{ entry.at | datetime }}</td>
+            <td>
+              <span class="badge {% if 'REJECT' in entry.action or 'BLOCKED' in entry.action %}badge-bad{% elif 'OVERRIDE' in entry.action %}badge-warn{% elif 'ANCHOR' in entry.action or 'SEAL' in entry.action %}badge-chain{% else %}badge-plain{% endif %}">
+                {{ entry.action }}
+              </span>
+            </td>
+            <td class="mono small">{{ entry.actor }}</td>
+            <td class="mono small">{{ entry.target | truncate(24) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No audit entries yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("deep-audit-btn").addEventListener("click", async () => {
+  const button = document.getElementById("deep-audit-btn");
+  const target = document.getElementById("audit-result");
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner"></span> Re-verifying signatures…';
+  target.innerHTML = '<div class="callout info"><p>Re-deriving ECDSA signatures for every block not already in the cache. This takes about 25&nbsp;ms per new signature; cached blocks are skipped entirely.</p></div>';
+  try {
+    const data = await api("/api/chain/verify?deep=1");
+    const report = data.report;
+    target.innerHTML = `
+      <div class="callout ${report.valid ? "ok" : "bad"}">
+        <h4>${escapeHtml(report.headline)}</h4>
+        <p>
+          ${report.signatures_checked} signatures re-verified in ${report.duration_ms.toFixed(0)} ms.
+          Cache now holds ${report.signature_audit.blocks_signature_verified}/${report.signature_audit.blocks_with_transactions} blocks.
+          Total: ${report.checked_blocks} blocks, ${report.checked_transactions} records.
+        </p>
+      </div>`;
+    toast(report.valid ? "All signatures verified" : "SIGNATURE FAILURE DETECTED", report.valid ? "ok" : "bad", 6000);
+  } catch (error) {
+    target.innerHTML = `<div class="callout bad"><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Run deep signature audit";
+  }
+});
+</script>
+{% endblock %}

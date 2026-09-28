@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block heading %}{{ session.subject_code }} — {{ session.subject_name }}{% endblock %}
+{% block subheading %}{{ session.room }} &middot; {{ session.faculty_name }} &middot; {{ session.started_at | datetime }}{% endblock %}
+
+{% block topbar_actions %}
+  <span id="status-badge" class="badge badge-ok"><span class="dot pulse"></span> LIVE</span>
+  <button class="btn btn-sm btn-bad" id="close-btn">Close &amp; seal block</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="grid grid-2">
+
+  <!-- ================================ QR ================================ -->
+  <div class="card" style="text-align:center;">
+    <div class="card-head" style="justify-content:center;">
+      <h2>Scan to mark attendance</h2>
+    </div>
+
+    <div class="qr-stage">
+      <img id="qr-image" alt="Session QR code" width="300" height="300" style="width:300px;height:300px;">
+    </div>
+
+    <div class="qr-timer" style="max-width:330px;margin:14px auto 0;">
+      <span id="qr-timer-bar" style="width:100%;"></span>
+    </div>
+    <p class="small" style="margin-top:9px;">
+      Code refreshes in <strong id="qr-countdown">--</strong>s &middot;
+      token slot <span class="mono" id="qr-slot">--</span>
+    </p>
+
+    <div class="divider"></div>
+
+    <div class="row" style="justify-content:center;">
+      <button class="btn btn-sm" data-copy="" id="copy-link-btn" data-copy-label="Scan link">Copy scan link</button>
+      <button class="btn btn-sm" id="seal-btn">Seal block now</button>
+      <button class="btn btn-sm" onclick="window.print()">Print</button>
+    </div>
+
+    <p class="small" style="margin-top:12px;">
+      Students open <code class="mono">/scan</code> and either scan this code or paste the token.
+      Each code is signed with this session's secret and expires automatically —
+      a screenshot forwarded to a friend will not work.
+    </p>
+  </div>
+
+  <!-- ============================== COUNTERS ============================== -->
+  <div class="stack">
+    <div class="grid grid-3">
+      <div class="stat good"><div class="label">Present</div><div class="value" id="count-present">0</div></div>
+      <div class="stat"><div class="label">Late</div><div class="value" id="count-late">0</div><div class="foot" style="color:var(--warn)"></div></div>
+      <div class="stat bad"><div class="label">Absent</div><div class="value" id="count-absent">0</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Marked so far</h3>
+        <span class="hint"><span id="marked-count">0</span> / <span id="expected-count">0</span> students</span>
+      </div>
+      <div class="progress" style="margin-bottom:6px;">
+        <span id="turnout-bar" style="width:0%;"></span>
+      </div>
+      <p class="small">
+        Unsealed transactions: <strong id="mempool-count">0</strong>
+        (a block seals automatically at {{ chain_stats.difficulty and 25 }} pending marks, or when you close the session)
+      </p>
+    </div>
+
+    <div class="card card-pad-0">
+      <div class="card-head" style="padding:16px 18px 12px;margin:0;">
+        <h3>Live feed</h3>
+        <span class="badge badge-chain"><span class="dot pulse"></span> auto-refresh</span>
+      </div>
+      <div class="feed" id="feed">
+        <div class="empty">Waiting for students to scan…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:16px;">
+  <div class="card">
+    <div class="card-head"><h2>Not yet marked</h2><span class="hint" id="absent-hint"></span></div>
+    <div class="scroll-y" id="absentee-list" style="max-height:300px;">
+      <p class="small">—</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Manual override</h2></div>
+    <p class="small" style="margin-bottom:12px;">
+      For a student whose phone died. The correction is signed with the
+      <em>faculty</em> key, tagged MANUAL, and needs a reason — it goes on the same chain.
+    </p>
+    <form id="manual-form">
+      <div class="form-row">
+        <div class="field">
+          <label for="manual-roll">Roll number</label>
+          <input id="manual-roll" placeholder="BCOE23AI007" required>
+        </div>
+        <div class="field">
+          <label for="manual-status">Mark as</label>
+          <select id="manual-status">
+            <option>PRESENT</option><option>LATE</option><option>ABSENT</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="manual-reason">Reason (required, recorded on-chain)</label>
+        <input id="manual-reason" placeholder="Phone battery died, verified in class" required>
+      </div>
+      <button class="btn btn-block" type="submit">Record override</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SESSION_ID = {{ session.session_id | tojson }};
+const FACULTY_ID = {{ session.faculty_id | tojson }};
+let qrTtl = 30;
+let qrIssuedAt = 0;
+
+/* ---------------------------------------------------------------- QR refresh */
+async function refreshQr() {
+  try {
+    const data = await api(`/api/sessions/${SESSION_ID}/qr`);
+    const image = document.getElementById("qr-image");
+    if (image.src !== data.qr_svg) image.src = data.qr_svg;
+    document.getElementById("qr-slot").textContent = data.slot;
+    document.getElementById("copy-link-btn").dataset.copy = window.location.origin + data.share_url;
+    qrTtl = data.ttl || 30;
+    qrIssuedAt = Date.now();
+    document.getElementById("status-badge").innerHTML = '<span class="dot pulse"></span> LIVE';
+    document.getElementById("status-badge").className = "badge badge-ok";
+  } catch (error) {
+    const badge = document.getElementById("status-badge");
+    badge.className = "badge badge-bad";
+    badge.innerHTML = '<span class="dot"></span> ' + (error.code === "SESSION_CLOSED" ? "CLOSED" : "ERROR");
+    if (error.code === "SESSION_CLOSED") {
+      document.getElementById("qr-image").style.opacity = "0.15";
+      clearInterval(qrTimer);
+      return false;
+    }
+  }
+  return true;
+}
+
+const qrTimer = setInterval(() => {
+  const elapsed = (Date.now() - qrIssuedAt) / 1000;
+  const remaining = Math.max(0, qrTtl - elapsed);
+  document.getElementById("qr-countdown").textContent = remaining.toFixed(0);
+  document.getElementById("qr-timer-bar").style.width = `${(remaining / qrTtl) * 100}%`;
+}, 200);
+
+/* --------------------------------------------------------------- live feed */
+let lastRendered = "";
+
+async function refreshLive() {
+  try {
+    const data = await api(`/api/sessions/${SESSION_ID}/live`);
+    document.getElementById("count-present").textContent = data.present;
+    document.getElementById("count-late").textContent = data.late;
+    document.getElementById("count-absent").textContent = data.absent;
+    document.getElementById("marked-count").textContent = data.marked;
+    document.getElementById("expected-count").textContent = data.expected;
+    document.getElementById("mempool-count").textContent = data.mempool;
+    document.getElementById("turnout-bar").style.width =
+      `${data.expected ? (data.marked / data.expected) * 100 : 0}%`;
+    document.getElementById("absent-hint").textContent = `${data.absent} outstanding`;
+
+    const signature = JSON.stringify(data.recent.map((r) => r.tx_id));
+    if (signature !== lastRendered) {
+      lastRendered = signature;
+      const feed = document.getElementById("feed");
+      feed.innerHTML = data.recent.length ? data.recent.map((record) => `
+        <div class="feed-item">
+          <div class="feed-avatar">${escapeHtml(initials(record.name))}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;">${escapeHtml(record.name)}</div>
+            <div class="small mono" style="font-size:10.5px;">${escapeHtml(record.roll_no)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="${statusClass(record.status)}" style="font-size:11.5px;">${record.status}</div>
+            <div class="small" style="font-size:10.5px;">${relativeTime(record.marked_at)}</div>
+          </div>
+        </div>`).join("") : '<div class="empty">Waiting for students to scan…</div>';
+    }
+
+    const absentees = document.getElementById("absentee-list");
+    absentees.innerHTML = data.absentees.length ? data.absentees.map((student) => `
+      <div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(30,41,59,.5);">
+        <span style="font-size:12.5px;">${escapeHtml(student.name)}</span>
+        <span class="mono small">${escapeHtml(student.roll_no)}</span>
+      </div>`).join("") : '<p class="small">Everyone has been marked. 🎉</p>';
+  } catch (error) {
+    console.warn(error.message);
+  }
+}
+
+/* ------------------------------------------------------------- interactions */
+document.getElementById("close-btn").addEventListener("click", async () => {
+  if (!confirm("Close this session and seal the pending attendance into a block?")) return;
+  try {
+    const result = await api(`/api/sessions/${SESSION_ID}/close`, { method: "POST", body: "{}" });
+    const block = result.session.sealed_block;
+    toast(block
+      ? `Session closed. Block <strong>#${block.index}</strong> mined with ${result.session.marked_count} records.<br>
+         <span class="mono" style="font-size:10.5px;">${block.hash}</span>`
+      : "Session closed. Nothing was pending.", "ok", 8000);
+    document.getElementById("close-btn").disabled = true;
+    setTimeout(() => { window.location.href = "/explorer"; }, 2500);
+  } catch (error) {
+    toast(error.message, "bad", 6000);
+  }
+});
+
+document.getElementById("seal-btn").addEventListener("click", async () => {
+  try {
+    const result = await api(`/api/sessions/${SESSION_ID}/seal`, { method: "POST", body: "{}" });
+    if (result.ok) {
+      toast(`Block #${result.block.index} sealed with ${result.block.transactions.length} transactions.`, "ok");
+      refreshLive();
+    } else {
+      toast(result.message || "Nothing to seal", "warn");
+    }
+  } catch (error) {
+    toast(error.message, "bad");
+  }
+});
+
+document.getElementById("manual-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await api("/api/attendance/manual", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: SESSION_ID,
+        roll_no: document.getElementById("manual-roll").value.trim().toUpperCase(),
+        status: document.getElementById("manual-status").value,
+        faculty_id: FACULTY_ID,
+        reason: document.getElementById("manual-reason").value.trim(),
+      }),
+    });
+    toast("Manual override recorded and signed by the faculty key.", "ok");
+    event.target.reset();
+    refreshLive();
+  } catch (error) {
+    toast(error.message, "bad", 6000);
+  }
+});
+
+/* ------------------------------------------------------------------- start */
+refreshQr().then((alive) => { if (alive !== false) setInterval(refreshQr, 5000); });
+refreshLive();
+setInterval(refreshLive, 3000);
+</script>
+{% endblock %}

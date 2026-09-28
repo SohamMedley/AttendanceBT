@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block subheading %}Storage backend, chain parameters and cryptographic self-tests{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-sm" id="selftest-btn">Run self-test</button>
+{% endblock %}
+
+{% block content %}
+
+<div id="selftest-result" style="margin-bottom:16px;"></div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head">
+      <h2>Storage backend</h2>
+      {% if status.storage.backend == 'firestore' %}
+        <span class="badge badge-ok"><span class="dot pulse"></span> Firestore</span>
+      {% else %}
+        <span class="badge badge-warn"><span class="dot"></span> Local JSON</span>
+      {% endif %}
+    </div>
+    <dl class="dl">
+      <dt>Requested</dt><dd class="mono">{{ status.storage.report.requested }}</dd>
+      <dt>Active</dt><dd class="mono">{{ status.storage.backend }}</dd>
+      {% if status.storage.report.project_id %}<dt>Firebase project</dt><dd class="mono">{{ status.storage.report.project_id }}</dd>{% endif %}
+      {% if status.storage.health.path %}<dt>File</dt><dd class="mono small">{{ status.storage.health.path }}</dd>{% endif %}
+      {% if status.storage.health.file_size_bytes %}<dt>Size</dt><dd>{{ (status.storage.health.file_size_bytes / 1024) | round(1) }} KB</dd>{% endif %}
+    </dl>
+    {% if status.storage.report.notes %}
+      <div class="divider"></div>
+      {% for note in status.storage.report.notes %}
+        <div class="callout {{ 'warn' if 'unavailable' in note or 'not set' in note else 'info' }}" style="margin-bottom:8px;">
+          <p style="font-size:12.5px;">{{ note }}</p>
+        </div>
+      {% endfor %}
+    {% endif %}
+    <div class="divider"></div>
+    <p class="small">
+      To switch to Firestore, place your service-account JSON at
+      <code class="mono">firebase-service-account.json</code>, set
+      <code class="mono">FIREBASE_PROJECT_ID</code>, then run
+      <code class="mono">python manage.py firebase-check</code>.
+      If Firestore is unreachable the app keeps running on the local store — a database
+      outage must never stop a lecturer taking attendance.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Chain parameters</h2></div>
+    <dl class="dl">
+      <dt>Chain name</dt><dd class="mono">{{ status.chain.chain_name }}</dd>
+      <dt>Blocks</dt><dd>{{ status.chain.blocks }}</dd>
+      <dt>Height</dt><dd>{{ status.chain.height }}</dd>
+      <dt>Difficulty</dt><dd>{{ status.chain.difficulty }} leading zeros</dd>
+      <dt>Expected attempts/block</dt><dd>16<sup>{{ status.chain.difficulty }}</sup> ≈ {{ status.chain.total_hash_attempts | thousands }} observed</dd>
+      <dt>Auto-seal threshold</dt><dd class="mono">25 pending transactions</dd>
+      <dt>Total mining time</dt><dd>{{ status.chain.total_mining_seconds }} s</dd>
+      <dt>On-disk size</dt><dd>{{ (status.chain.estimated_bytes_on_disk / 1024) | round(1) }} KB</dd>
+      <dt>Institution address</dt><dd><span class="hash copy-hash" data-copy="{{ status.ledger.institution_address }}">{{ status.ledger.institution_address }}</span></dd>
+      <dt>Key store</dt><dd>{{ status.ledger.keystore_size }} key pairs (server-side)</dd>
+    </dl>
+    <div class="divider"></div>
+    <label for="difficulty">Change mining difficulty live</label>
+    <div class="row">
+      <input id="difficulty" type="number" min="1" max="6" value="{{ status.chain.difficulty }}" style="max-width:110px;">
+      <button class="btn btn-sm" id="difficulty-btn">Apply</button>
+    </div>
+    <p class="small" style="margin-top:8px;">
+      Difficulty 1–4 seals instantly; 5–6 shows real mining work. Bitcoin's difficulty is
+      about 10<sup>23</sup> — the algorithm is identical, only the target differs.
+    </p>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:16px;">
+  <div class="card">
+    <div class="card-head"><h2>Register</h2></div>
+    <div class="grid grid-3">
+      <div class="stat"><div class="label">Students</div><div class="value">{{ status.register.students }}</div></div>
+      <div class="stat"><div class="label">Faculty</div><div class="value">{{ status.register.faculty }}</div></div>
+      <div class="stat"><div class="label">Subjects</div><div class="value">{{ status.register.subjects }}</div></div>
+      <div class="stat"><div class="label">Sessions</div><div class="value">{{ status.register.sessions }}</div></div>
+      <div class="stat"><div class="label">Records</div><div class="value">{{ status.register.attendance_records }}</div></div>
+      <div class="stat"><div class="label">Anchors</div><div class="value">{{ status.register.anchors }}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Attendance policy</h2></div>
+    <dl class="dl">
+      <dt>Minimum attendance</dt><dd>75% ({{ college.affiliation }} requirement)</dd>
+      <dt>QR token lifetime</dt><dd>{{ status.config.session.qr_token_ttl }} s, refreshed continuously</dd>
+      <dt>Accepted clock skew</dt><dd>±1 slot ({{ status.config.session.qr_token_ttl * 3 }} s worst case)</dd>
+      <dt>Grace period</dt><dd>{{ status.config.session.grace_seconds }} s, then marked LATE</dd>
+      <dt>Late marking</dt><dd>{{ 'allowed' if status.config.session.late_allowed else 'blocked' }}</dd>
+      <dt>Device binding</dt><dd>{{ 'on' if status.config.security.bind_device_on_first_use else 'off' }}</dd>
+      <dt>Manual override</dt><dd>{{ 'allowed with a reason' if status.config.security.allow_manual_override else 'disabled' }}</dd>
+      <dt>Geofence</dt><dd>{{ 'required, ' ~ status.config.session.geofence_radius_m ~ ' m' if status.config.session.require_geofence else 'not enforced' }}</dd>
+      <dt>Rate limits</dt><dd>{{ status.config.security.max_marks_per_minute_per_ip }}/min per IP, {{ status.config.security.max_marks_per_minute_per_student }}/min per student</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-head"><h2>Command reference</h2></div>
+  <pre class="code">python manage.py seed              # create the register, subjects and key pairs
+python manage.py demo --weeks 6    # generate six weeks of realistic history
+python manage.py serve             # start this web application
+python manage.py verify            # re-verify every block and transaction
+python manage.py tamper --level 4  # demonstrate tamper detection
+python manage.py anchor            # anchor pending records publicly
+python manage.py student BCOE23AI001
+python manage.py defaulters
+python manage.py anomalies
+python manage.py bench --max 5     # Proof-of-Work benchmark
+python manage.py firebase-check    # diagnose the Firestore connection
+python manage.py self-test         # verify the cryptographic primitives
+python manage.py export --out data/chain_export.json</pre>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("selftest-btn").addEventListener("click", async () => {
+  const button = document.getElementById("selftest-btn");
+  const target = document.getElementById("selftest-result");
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner"></span> Testing…';
+  try {
+    const data = await api("/api/system/self-test", { method: "POST", body: "{}" });
+    target.innerHTML = `
+      <div class="callout ${data.all_passed ? "ok" : "bad"}">
+        <h4>${data.passed}/${data.total} cryptographic checks passed</h4>
+        <p>Verified against published test vectors — these are the primitives the whole system rests on.</p>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr></thead>
+            <tbody>
+              ${data.checks.map((check) => `
+                <tr>
+                  <td style="font-size:12.5px;">${escapeHtml(check.name)}</td>
+                  <td class="mono" style="font-size:10.5px;">${escapeHtml(String(check.expected))}</td>
+                  <td class="mono" style="font-size:10.5px;">${escapeHtml(String(check.actual))}</td>
+                  <td>${check.passed ? '<span class="badge badge-ok">PASS</span>' : '<span class="badge badge-bad">FAIL</span>'}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    toast(data.all_passed ? "All cryptographic self-tests passed" : "Self-test failures", data.all_passed ? "ok" : "bad");
+  } catch (error) {
+    toast(error.message, "bad");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Run self-test";
+  }
+});
+
+document.getElementById("difficulty-btn").addEventListener("click", async () => {
+  try {
+    const difficulty = Number(document.getElementById("difficulty").value);
+    const data = await api("/api/system/difficulty", {
+      method: "POST",
+      body: JSON.stringify({ difficulty }),
+    });
+    toast(`Difficulty set to ${data.difficulty}. About ${data.expected_attempts.toLocaleString()} hashes per block.`, "ok", 5000);
+  } catch (error) {
+    toast(error.message, "bad");
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block subheading %}Publishing Merkle roots so the college cannot rewrite its own history{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-sm btn-primary" id="anchor-btn">Anchor pending records</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="callout info" style="margin-bottom:16px;">
+  <h4>Why anchor?</h4>
+  <p>
+    A single-institution chain is only as trustworthy as the institution running it — an
+    administrator with file access could re-mine the whole chain and every internal check
+    would still pass. Anchoring removes that possibility: we publish a single 32-byte
+    Merkle root to a ledger the college does not control. <strong>No student data ever
+    leaves the server</strong> — only that hash. If anyone later alters a record, the
+    recomputed root stops matching the published one, forever.
+  </p>
+</div>
+
+<div id="anchor-result"></div>
+
+<div class="grid grid-4" style="margin-bottom:16px;">
+  <div class="stat accent"><div class="label">Active provider</div><div class="value" style="font-size:17px;margin-top:8px;">{{ pending.provider }}</div><div class="foot">{{ pending.provider_info.network }}</div></div>
+  <div class="stat"><div class="label">Records awaiting anchor</div><div class="value">{{ pending.pending_records }}</div><div class="foot">blocks {{ pending.from_block }}–{{ pending.to_block }}</div></div>
+  <div class="stat chain"><div class="label">Anchors created</div><div class="value">{{ pending.anchor_count }}</div><div class="foot">each links to the previous root</div></div>
+  <div class="stat"><div class="label">Independently verified</div><div class="value">{{ anchors | selectattr('independent') | list | length }}</div><div class="foot">published outside this college</div></div>
+</div>
+
+<div class="grid grid-2" style="margin-bottom:16px;">
+  <div class="card">
+    <div class="card-head"><h2>Pending root</h2></div>
+    {% if pending.pending_root %}
+      <dl class="dl">
+        <dt>Merkle root</dt><dd><span class="hash copy-hash" data-copy="{{ pending.pending_root }}">{{ pending.pending_root }}</span></dd>
+        <dt>Records included</dt><dd>{{ pending.pending_records }}</dd>
+        <dt>Block range</dt><dd>{{ pending.from_block }} – {{ pending.to_block }}</dd>
+        <dt>Chain head</dt><dd><span class="hash">{{ pending.head_hash | short_hash }}</span></dd>
+      </dl>
+    {% else %}
+      <p class="small">Everything on the chain has already been anchored. Add attendance, then anchor again.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Available providers</h2></div>
+    <div class="stack">
+      {% for provider in providers %}
+      <div style="padding:11px 13px;border:1px solid {{ 'var(--brand)' if provider.selected else 'var(--border)' }};border-radius:9px;">
+        <div class="spread" style="margin-bottom:5px;">
+          <strong style="font-size:13px;">{{ provider.provider }}</strong>
+          <span class="row" style="gap:5px;">
+            {% if provider.selected %}<span class="badge badge-info">active</span>{% endif %}
+            {% if provider.independent %}<span class="badge badge-ok">independent</span>{% else %}<span class="badge badge-warn">local only</span>{% endif %}
+          </span>
+        </div>
+        <div class="small">Network: {{ provider.network }}</div>
+        <div class="small">Cost: {{ provider.cost }}</div>
+        <div class="small">Assurance: {{ provider.assurance }}</div>
+        {% if provider.privacy %}<div class="small">Privacy: {{ provider.privacy }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <p class="small" style="margin-top:11px;">
+      Switch with <code class="mono">ANCHOR_PROVIDER=opentimestamps</code> or
+      <code class="mono">ethereum</code> in <code class="mono">.env</code>, then restart.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Anchor history</h2>
+    <span class="hint">each anchor commits to the previous one</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Anchor id</th><th>Provider</th><th>Merkle root</th><th class="num">Records</th><th>Blocks</th><th>When</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for anchor in anchors %}
+        <tr>
+          <td class="mono" style="font-size:11px;">{{ anchor.anchor_id }}</td>
+          <td class="small">{{ anchor.provider }}<br><span class="small" style="color:var(--text-faint);">{{ anchor.network }}</span></td>
+          <td><span class="hash copy-hash" data-copy="{{ anchor.merkle_root }}">{{ anchor.merkle_root | short_hash(10, 6) }}</span></td>
+          <td class="num">{{ anchor.records_anchored }}</td>
+          <td class="small">{{ anchor.from_block }}–{{ anchor.to_block }}</td>
+          <td class="small nowrap">{{ anchor.created_at | datetime }}</td>
+          <td>
+            {% if anchor.status == 'SUBMITTED' %}<span class="badge badge-ok">submitted</span>
+            {% elif anchor.status == 'PENDING' %}<span class="badge badge-info">pending</span>
+            {% elif anchor.status == 'SIMULATED' %}<span class="badge badge-warn">simulated</span>
+            {% elif anchor.status == 'PREPARED' %}<span class="badge badge-info">prepared</span>
+            {% else %}<span class="badge badge-bad">failed</span>{% endif %}
+          </td>
+          <td class="nowrap">
+            <button class="btn btn-sm btn-ghost verify-anchor" data-anchor="{{ anchor.anchor_id }}">Verify</button>
+            {% if anchor.proof %}<a class="btn btn-sm btn-ghost" href="{{ url_for('anchoring_api.download_proof', anchor_id=anchor.anchor_id) }}">.ots</a>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No anchors yet. Click “Anchor pending records” above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-head"><h2>How to verify a proof independently</h2></div>
+  <pre class="code"># 1. Download the proof from the table above (the .ots button)
+# 2. Install the reference client (needs Python)
+pip install opentimestamps-client
+
+# 3. Verify — no trust in this application, this server, or this college required
+ots verify ANC-20260929-101500-ab12cd.ots
+
+# It reports the Bitcoin block height in which the Merkle root was committed.
+# That timestamp is what makes a later rewrite of the attendance chain detectable.</pre>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("anchor-btn").addEventListener("click", async () => {
+  const button = document.getElementById("anchor-btn");
+  const target = document.getElementById("anchor-result");
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner"></span> Submitting…';
+  try {
+    const data = await api("/api/anchors", { method: "POST", body: JSON.stringify({ note: "Anchored from the web console" }) });
+    const anchor = data.anchor;
+    target.innerHTML = `
+      <div class="callout ${anchor.independent ? "ok" : "warn"}" style="margin-bottom:16px;">
+        <h4>${escapeHtml(anchor.status)} &middot; ${escapeHtml(anchor.provider)}</h4>
+        <p>${escapeHtml(anchor.message)}</p>
+        <dl class="dl" style="margin-top:10px;">
+          <dt>Anchor id</dt><dd class="mono">${escapeHtml(anchor.anchor_id)}</dd>
+          <dt>Merkle root</dt><dd><span class="hash copy-hash" data-copy="${escapeHtml(anchor.merkle_root)}">${escapeHtml(anchor.merkle_root)}</span></dd>
+          <dt>Records committed</dt><dd>${anchor.records_anchored}</dd>
+          <dt>Block range</dt><dd>${anchor.from_block} – ${anchor.to_block}</dd>
+          ${anchor.explorer_url ? `<dt>Explorer</dt><dd><a href="${escapeHtml(anchor.explorer_url)}" target="_blank" rel="noopener">${escapeHtml(anchor.explorer_url)}</a></dd>` : ""}
+        </dl>
+      </div>`;
+    toast("Anchor created", anchor.independent ? "ok" : "warn", 6000);
+    setTimeout(() => window.location.reload(), 2600);
+  } catch (error) {
+    target.innerHTML = `<div class="callout bad" style="margin-bottom:16px;"><p>${escapeHtml(error.message)}</p></div>`;
+    toast(error.message, "bad", 6000);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Anchor pending records";
+  }
+});
+
+document.querySelectorAll(".verify-anchor").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const anchorId = button.dataset.anchor;
+    button.innerHTML = '<span class="spinner"></span>';
+    try {
+      const data = await api(`/api/anchors/${encodeURIComponent(anchorId)}/verify`);
+      toast(data.verified
+        ? `Anchor verified: the root still matches the chain (${data.records_anchored} records).`
+        : "Anchor verification FAILED — the chain no longer matches this root.", data.verified ? "ok" : "bad", 8000);
+    } catch (error) {
+      toast(error.message, "bad");
+    } finally {
+      button.textContent = "Verify";
+    }
+  });
+});
+</script>
+{% endblock %}

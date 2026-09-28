@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block heading %}First-time setup{% endblock %}
+{% block subheading %}The register is empty — populate it to get started{% endblock %}
+
+{% block content %}
+<div style="max-width:820px;margin:0 auto;">
+
+  <div class="callout info" style="margin-bottom:16px;">
+    <h4>Welcome to the {{ college.name }} Attendance Chain</h4>
+    <p>
+      This is a blockchain-based attendance system for
+      {{ college.department }}, built for the University of Mumbai subject
+      <strong>CSDO7022 Blockchain Technologies</strong>. Nothing is loaded yet, so let us
+      create the college register first.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Populate the register</h2>
+      <span class="badge badge-plain">one click</span>
+    </div>
+    <p class="small" style="margin-bottom:14px;">
+      Creates {{ college.department }} students, the six faculty members, the
+      University of Mumbai subjects with their real course codes, and a unique
+      secp256k1 key pair for every person.
+    </p>
+    <button class="btn btn-primary btn-block" id="seed-btn">Create the register</button>
+    <div id="seed-result" style="margin-top:14px;"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="card-head"><h2>Prefer the terminal?</h2></div>
+    <pre class="code">python manage.py seed            # register + keys
+python manage.py demo --weeks 6  # six weeks of realistic history
+python manage.py serve           # start the app</pre>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="card-head"><h2>Current state</h2></div>
+    <div class="grid grid-3">
+      <div class="stat"><div class="label">Students</div><div class="value">{{ register.students }}</div></div>
+      <div class="stat"><div class="label">Subjects</div><div class="value">{{ register.subjects }}</div></div>
+      <div class="stat"><div class="label">Blocks</div><div class="value">{{ register.blocks }}</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("seed-btn").addEventListener("click", async () => {
+  const button = document.getElementById("seed-btn");
+  const target = document.getElementById("seed-result");
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner"></span> Generating keys and register…';
+  try {
+    const data = await api("/api/system/seed", { method: "POST", body: "{}" });
+    target.innerHTML = `
+      <div class="callout ok">
+        <h4>Register created</h4>
+        <p>${data.students} students, ${data.faculty} faculty, ${data.subjects} subjects
+           and ${data.keys_created} new key pairs.</p>
+      </div>`;
+    toast("Register created — redirecting", "ok");
+    setTimeout(() => { window.location.href = "/"; }, 1800);
+  } catch (error) {
+    target.innerHTML = `<div class="callout bad"><p>${escapeHtml(error.message)}</p></div>`;
+    button.disabled = false;
+    button.textContent = "Create the register";
+  }
+});
+</script>
+{% endblock %}
