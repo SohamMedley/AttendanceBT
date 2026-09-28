@@ -120,6 +120,7 @@
       <span>
         Difficulty {{ chain_difficulty }} &middot; v{{ app_version }} &middot;
         {{ 'Firestore backend' if storage_backend == 'firestore' else 'local JSON backend' }}
+        &middot; <span class="mono">{{ build_commit }}</span>
       </span>
     </footer>
   </main>

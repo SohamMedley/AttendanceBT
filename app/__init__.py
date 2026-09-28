@@ -11,6 +11,8 @@ Run with ``python manage.py serve`` (development) or
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
@@ -78,6 +80,31 @@ def _register_blueprints(app: Flask, services: Services) -> None:
     app.register_blueprint(chain.bp)
 
 
+def _build_commit() -> str:
+    """Short id of the code that is actually running.
+
+    Hosts hand us the commit (``RENDER_GIT_COMMIT`` and friends); locally we ask
+    git. The value is shown in the footer so "is my fix deployed yet?" is a
+    glance instead of a guess.
+    """
+    for variable in ("RENDER_GIT_COMMIT", "GIT_COMMIT", "SOURCE_VERSION", "HEROKU_SLUG_COMMIT"):
+        value = os.environ.get(variable)
+        if value:
+            return value[:7]
+    try:
+        import subprocess
+
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        ).stdout.strip() or "local"
+    except Exception:  # pragma: no cover - no git, no problem
+        return "local"
+
+
 def _register_template_helpers(app: Flask, services: Services) -> None:
     """Values every template needs (college identity, backend badge)."""
 
@@ -111,6 +138,7 @@ def _register_template_helpers(app: Flask, services: Services) -> None:
         return {
             "college": app.config["COLLEGE"],
             "app_version": app.config["VERSION"],
+            "build_commit": _build_commit(),
             "storage_backend": services.store.name,
             "storage_report": store_report(),
             "chain_difficulty": services.ledger.chain.difficulty,
@@ -209,21 +237,27 @@ def _register_error_handlers(app: Flask) -> None:
         )
 
     @app.errorhandler(500)
-    def handle_server_error(error):  # pragma: no cover
+    def handle_server_error(error):
         log.exception("Unhandled error on %s", request.path)
         if request.path.startswith("/api/"):
             return jsonify(
                 {"ok": False, "code": "SERVER_ERROR", "error": "Internal server error"}
             ), 500
+
+        # Say why. An opaque "something went wrong" turns a five-second
+        # diagnosis into a log hunt. Only the exception's own message is
+        # shown -- never a traceback, and never a configuration value.
+        original = getattr(error, "original_exception", None) or error
+        detail = str(original) or original.__class__.__name__
         return (
             render_template(
                 "error.html",
                 title="Server error",
                 active="",
                 error={
-                    "code": "SERVER_ERROR",
-                    "message": "Something went wrong on the server. The ledger itself "
-                    "is unaffected - no data was lost.",
+                    "code": original.__class__.__name__,
+                    "message": detail[:400],
+                    "hint": "The ledger itself is unaffected - no data was lost.",
                 },
             ),
             500,
