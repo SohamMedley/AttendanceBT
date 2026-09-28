@@ -1,8 +1,40 @@
 # Provex · AttendanceBT
 
-A Flask attendance dashboard with rotating QR check-ins and SHA-256 hash-linked blocks.
+Teacher-scanned attendance for **Blockchain & Technology**, **Semester VII**, at **Bharat College of Engineering, Badlapur**, affiliated with the **University of Mumbai**.
 
-## Run
+## Two portals
+
+### Teacher — `/admin/dashboard`
+
+Demo login: **Payal Mam** / **BT#PT**.
+
+- Manage student profiles (full name and roll number).
+- Start a **Lecture** or **Practical** session. A demo lecture is active on startup.
+- Open **Scan student QR**, allow camera access, and scan the student's live personal QR. A valid scan marks them **Present** for the active session.
+- Use a QR image upload or paste decoded QR contents if camera access is unavailable. These paths perform the same server-side validation.
+- View/search attendance, export CSV, and seal pending records into hash-linked blocks.
+- Starting a new session retains old attendance and allows each student to be marked present once in the new session. Duplicates in the same session are rejected even after sealing.
+
+### Student — `/student` (also the default home page)
+
+Students sign in with their **full name** and **roll number as password**. Letter case and all whitespace in the name are ignored; spelling and name order must match the teacher-created profile. Leading zeroes in roll numbers are accepted.
+
+Four demo profiles are preloaded:
+
+| Roll no. / password | Full name |
+| --- | --- |
+| 14 | Soham Dharap |
+| 15 | Shravani Dongre |
+| 33 | Vikas Jogdand |
+| 45 | Samir Maharana |
+
+After signing in, students can only view their own personal QR card and their attendance status for the active class. They cannot access the teacher's roster, ledger, scan, or sealing APIs.
+
+Each student has a distinct signed QR token valid for **60 seconds from issuance**. A countdown is shown; expired codes are hidden and replaced automatically. The server rejects expired, tampered, or superseded tokens with no grace period. The teacher's successful scan changes the student's status to Present.
+
+**Testing both roles:** use separate browsers, an incognito window, or two devices. Signing into another role in the same browser replaces the current session.
+
+## Run locally
 
 ```sh
 python -m venv .venv
@@ -10,55 +42,67 @@ python -m venv .venv
 .venv/bin/python app.py
 ```
 
-Open port 5000. Scan the session QR code on another device to open the check-in form, or use **Record attendance**. Seal pending records into a block, search attendance, and export CSV.
+Open `http://localhost:5000/admin/dashboard` for the teacher and `http://localhost:5000/student` in a separate browser session for a student. Camera access requires HTTPS or localhost. Use the public HTTPS Render URL on phones, not a LAN HTTP address.
 
 ```sh
 .venv/bin/python -m unittest discover -s tests
+node --check static/app.js
+node --check static/student.js
+node --check static/auth.js
 ```
 
-## Scope
-
-This is an in-memory, single-process demo, not a decentralized or production attendance service. Records reset on restart. Duplicate student IDs are rejected for the same UTC day, including after sealing. QR tokens rotate every 15 seconds with one previous-window grace period. Set `ATTENDANCE_SECRET` to supply a stable signing secret; otherwise a random secret is generated on startup. `PORT` defaults to 5000.
-
-The server verifies block hashes, indexes, and links for the integrity indicator. There is no authentication or authorization: do not expose real student data or use this as a trusted production attendance system without adding access control and persistent storage.
+QR scanning uses the locally vendored **html5-qrcode 2.3.8** library; its license is included in `static/vendor/`. No third-party scanner CDN is required at runtime. Camera images are decoded in the browser; the decoded token is sent to the server for validation.
 
 ## Deploy on Render (Blueprint)
 
-The repository includes `render.yaml`; no manual build or start command is needed.
+1. Merge the changes into `main`, or deploy the working branch `arena/01a0ea3e-attendancebt` directly.
+2. Sign in to [Render](https://dashboard.render.com/), then select **New → Blueprint**.
+3. Connect GitHub and select **SohamMedley/AttendanceBT**. Grant repository access if required.
+4. Select the branch containing these changes. Render detects `render.yaml` at the repository root.
+5. Review the free web service and choose **Deploy Blueprint** (or **Apply**).
+6. Wait for the build/health check, then open the assigned **https://…onrender.com** URL.
+7. Teacher: open `/admin/dashboard`. Share `/student` with students.
 
-1. Merge [PR #2](https://github.com/SohamMedley/AttendanceBT/pull/2) into `main` (including the Render configuration).
-2. Sign in to [Render](https://dashboard.render.com/), then choose **New → Blueprint**.
-3. Connect GitHub and select **SohamMedley/AttendanceBT**. Grant Render access to the repository if it is not listed.
-4. Select branch **main**. Render should detect `render.yaml` at the repository root. To test before merging, select **arena/01a0ea3e-attendancebt** instead.
-5. Give the Blueprint a name, review the free web service, and choose **Deploy Blueprint** (or **Apply**).
-6. Wait for the build and health check to pass. Open the service's assigned **https://…onrender.com** URL.
+Render generates `ATTENDANCE_SECRET` automatically and supplies `PORT`. Do not commit actual deployment secrets. A stable secret signs both login cookies and student QR codes. Changing it signs users out and invalidates their codes.
 
-Render generates `ATTENDANCE_SECRET` automatically. Do not put a real secret in `render.yaml` or commit it to Git. Keep the generated value stable; rotating it invalidates existing QR tokens. Render supplies `PORT` automatically.
+Optional Render environment variables:
 
-### Verify the deployment
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TEACHER_USER` | `Payal Mam` | Teacher login ID |
+| `TEACHER_PASSWORD` | `BT#PT` | Teacher demo password; override for your deployment |
+| `ATTENDANCE_SECRET` | Generated by Blueprint | Stable session/QR signing secret |
 
-- Open `/healthz` on your service URL: it should return `{"status":"ok"}`.
-- Open the dashboard and confirm the QR code loads and refreshes.
-- Scan the QR code on your phone: it should open the same public **HTTPS** service URL with the check-in form.
-- Submit a test student, seal the pending record, and try the same ID again: the duplicate should be rejected.
-- Confirm the ledger says **Verified** and CSV export downloads.
+Secure cookies are enabled when Render's `RENDER=true` environment flag is present. Gunicorn runs **one worker with four threads**, sharing the in-memory roster and ledger. Do not increase workers or instance count without adding shared persistent storage. The app trusts one reverse proxy's forwarded protocol; host it behind a trusted proxy.
 
-### Important hosting limits
+### Verify deployment
 
-- **Demo only:** the free service has no persistent database. All records disappear on a restart, redeploy, or instance replacement. Free services can spin down while idle; the next request can take time to wake them.
-- **Keep one worker and one instance.** Gunicorn runs one worker with four threads so every request shares the same in-memory ledger. Do not scale workers or instances until a shared database is added.
-- **No login/access control:** anyone with the URL can view/export records, submit check-ins, and seal blocks. Use fictional student data on a public deployment.
-- Gunicorn is the hosted HTTP server; Flask debug mode is off. The app trusts one proxy's forwarded protocol so Render-generated QR links use HTTPS. Only deploy behind a trusted reverse proxy with this configuration.
+- `/healthz` returns `{"status":"ok"}`.
+- A signed-out visitor cannot read `/api/ledger` (HTTP 401).
+- Teacher login opens the dashboard; all four demo profiles appear under Student profiles.
+- In a separate browser/device, sign in as `sohamdharap` / `14`; the student card and 60-second QR appear.
+- Select/start the desired lecture or practical in the teacher dashboard and scan the student's QR.
+- Confirm the student is marked Present, a second scan is rejected, sealing works, and CSV includes class/session details.
+- Wait for a QR to expire: old tokens must be rejected and the student's page must show a fresh code.
 
 ### Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
-| Blueprint not found | Confirm the selected branch contains `render.yaml` at the repository root. |
-| Build fails | Check Render's build logs; the build command must install `requirements.txt`. |
-| Health check fails | Check runtime logs. The start command must bind to `0.0.0.0:$PORT`; the health path is `/healthz`. |
+| Blueprint not found | Selected branch must contain `render.yaml` at repository root. |
+| Build fails | Check build logs; the command must install `requirements.txt`. |
+| Health check fails | Check runtime logs; start command must bind to `0.0.0.0:$PORT`, health path `/healthz`. |
 | First load is slow | The free instance may be waking up. Wait and retry. |
-| QR expired | Scan the newly refreshed QR code and submit promptly. Tokens rotate every 15 seconds with one previous-window grace period. |
-| Records disappeared | In-memory storage resets when the process restarts; this is expected for this demo. |
+| Camera denied/unavailable | Open the HTTPS URL directly in a browser, not an embedded preview. Allow camera access, or upload a current QR image. |
+| Student can't sign in | Teacher must create their profile first; verify full-name spelling and roll number. |
+| Student/teacher got signed out | Different roles share the browser cookie; use separate browser sessions. A server restart may also invalidate demo sessions. |
+| QR expired | Ask the student to show the refreshed live QR. Validity is strictly 60 seconds. |
+| Records disappeared | In-memory state resets on restart, redeploy, or instance replacement. |
 
-Future production deployment needs persistent storage, authentication, authorization, and abuse prevention before collecting real attendance data.
+## Demo limitations
+
+This is a **single-process, in-memory demo**, not a decentralized network or production attendance system. New profiles, attendance, active sessions, and tokens reset on restart. The four example profiles are restored at startup. Free Render instances may spin down while idle.
+
+Role checks protect teacher endpoints, but the published teacher password and name-plus-roll-number student login are **demo credentials, not strong authentication**. There is no login rate limiting, account recovery, or durable user database. A shared/screenshot QR can be replayed within its validity period before attendance is recorded; a scan alone does not establish physical presence. Teachers should verify the student's identity while scanning.
+
+Before collecting real attendance data, add persistent storage, proper per-user passwords, login rate limiting, stronger identity verification, and privacy/retention controls. Use fictional data for public demos. The ledger verifies hashes/indexes/links, but an in-memory hash chain is not an independent audit guarantee.

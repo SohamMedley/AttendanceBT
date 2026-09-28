@@ -1,27 +1,30 @@
 const $ = id => document.getElementById(id);
-let currentToken = '', ledgerData = {chain: [], pending: []}, records = [], view = 'overview';
-let scannedToken = new URLSearchParams(location.search).get('token');
+let ledgerData = {chain: [], pending: [], session: {}}, records = [];
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const time = timestamp => new Date(timestamp * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+const time = timestamp => new Date(timestamp * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'});
 let toastTimer;
-function toast(message) { $('toast').textContent = message; $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 4500); }
-async function api(path, options) {const response = await fetch(path, options); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Something went wrong. Please try again.'); return data;}
-async function fetchEpoch() {
- try { const data = await api('/api/qr-epoch'); if(data.token !== currentToken) { currentToken = data.token; $('qr-image').src = '/api/qr.svg?epoch=' + encodeURIComponent(currentToken); $('token-label').textContent = currentToken; }
- $('epoch-counter').textContent = data.ttl_seconds + 's'; $('progress-bar').style.width = data.ttl_seconds / 15 * 100 + '%'; $('connection').innerHTML = '<i></i> System operational';
- } catch { $('connection').textContent = 'Connection interrupted'; $('epoch-counter').textContent = 'Offline'; } finally {setTimeout(fetchEpoch,1000);}
+function toast(message) { $('toast').textContent=message; $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').classList.remove('show'),4500); }
+async function api(path, options={}) {
+  const response=await fetch(path,{...options,headers:{'X-Requested-With':'Provex',...options.headers}});
+  if(response.status===401){location.href='/admin/dashboard';throw new Error('Please sign in again.');}
+  const data=await response.json();if(!response.ok)throw new Error(data.message||'Something went wrong. Please retry.');return data;
 }
-const badge = pending => `<span class="pill ${pending ? 'amber-pill' : 'green'}">${pending ? '◷ Pending' : '✓ Sealed'}</span>`;
+const post=(path,data)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});
+const badge = pending => `<span class="pill ${pending ? 'amber-pill' : 'green'}">${pending ? '✓ Present · pending' : '✓ Present · sealed'}</span>`;
 function student(record) {const initials=record.name.split(/\s+/).slice(0,2).map(s=>s[0]).join('');return `<div class="student-cell"><span class="student-avatar">${escapeHtml(initials)}</span><div>${escapeHtml(record.name)}<small>${escapeHtml(record.student_id)}</small></div></div>`;}
 function renderAttendance() {
- $('recent-body').innerHTML = records.length ? records.slice(0,5).map(r => `<tr><td>${student(r)}</td><td>${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty"><span class="empty-icon">♙</span><strong>Your first check-in starts here</strong><p>Share the session QR code with your students.<br>Their attendance will appear here in real time.</p></td></tr>';
+ const current = records.filter(r => r.session_id === ledgerData.session.id);
+ $('recent-body').innerHTML = current.length ? current.slice(0,5).map(r => `<tr><td>${student(r)}</td><td>${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty"><span class="empty-icon">♙</span><strong>Your first check-in starts here</strong><p>Open the scanner and scan a personal student QR.<br>Present students will appear here in real time.</p></td></tr>';
  const query = $('search').value.toLowerCase(); const filtered = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query));
- $('attendance-body').innerHTML = filtered.length ? filtered.map(r => `<tr><td>${student(r)}</td><td>${escapeHtml(r.student_id)}</td><td>${new Date(r.timestamp*1000).toLocaleDateString()} · ${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No matching attendance records.</td></tr>';
+ $('attendance-body').innerHTML = filtered.length ? filtered.map(r => `<tr><td>${student(r)}</td><td>${escapeHtml(r.student_id)}</td><td>${escapeHtml(r.session_type)}</td><td>${new Date(r.timestamp*1000).toLocaleDateString()} · ${time(r.timestamp)}</td><td>${badge(r.pending)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No matching attendance records.</td></tr>';
 }
 async function fetchLedger() {
  const data = await api('/api/ledger'); ledgerData = data;
  records = [...data.pending.map(r=>({...r,pending:true})), ...data.chain.slice(1).flatMap(b=>b.transactions.map(r=>({...r,pending:false})))].sort((a,b)=>b.timestamp-a.timestamp);
- $('total-count').textContent = records.length; $('nav-count').textContent=records.length; $('recent-count').textContent=records.length;
+ const present = records.filter(r => r.session_id === data.session.id).length;
+ $('total-count').textContent=present; $('session-present').textContent=present; $('nav-count').textContent=records.length; $('recent-count').textContent=present; $('roster-count').textContent=data.student_count;
+ $('active-class-type').textContent=data.session.type; $('active-class-date').textContent=data.session.date; $('hero-class').textContent=data.session.type.toUpperCase(); $('scanner-class').textContent=data.session.type.toLowerCase()+' · Blockchain & Technology';
+ $('connection').innerHTML='<i></i> System operational';
  $('pending-count').textContent=data.pending.length; $('blocks-count').textContent=data.chain.length-1; $('mine-button').disabled=!data.pending.length;
  const linked=data.integrity_valid === true;
  $('integrity').textContent=linked?'Verified':'Warning'; $('integrity-note').textContent=linked?'All hashes and links verified':'Ledger integrity check failed';
@@ -29,11 +32,57 @@ async function fetchLedger() {
  $('ledger-body').innerHTML=data.chain.slice().reverse().map(b=>`<tr><td class="block-tag">⬡ #${String(b.index).padStart(3,'0')} ${b.index===0?'<span class="count-badge">Genesis</span>':''}</td><td><code title="${escapeHtml(b.hash)}">${escapeHtml(b.hash.slice(0,16))}…</code></td><td><code title="${escapeHtml(b.previous_hash)}">${escapeHtml(b.previous_hash.slice(0,16))}…</code></td><td>${b.index===0?'—':b.transactions.length+' records'}</td><td>${time(b.timestamp)}</td><td><span class="pill green">✓ Sealed</span></td></tr>`).join(''); renderAttendance();
 }
 async function pollLedger(){try{await fetchLedger();}catch{ $('connection').textContent='Connection interrupted'; }finally{setTimeout(pollLedger,4000);}}
-function setView(next){view=next; const titles={overview:['Overview','Less roll call. More peace of mind.'],attendance:['Attendance','Every check-in, in one place.'],ledger:['Blockchain ledger','A transparent trail. From the first block onward.']}; $('page-title').textContent=titles[next][0]; $('breadcrumb').textContent=titles[next][0]; $('page-description').textContent=titles[next][1];$('hero').hidden=next!=='overview';$('overview-panels').hidden=next!=='overview';$('attendance-panel').hidden=next!=='attendance';$('ledger-panel').hidden=next==='attendance';document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===next));}
-document.querySelectorAll('.nav').forEach(n=>n.addEventListener('click',()=>setView(n.dataset.view)));$('view-all').onclick=()=>setView('attendance');$('search').oninput=renderAttendance;
-$('mine-button').onclick=async()=>{const button=$('mine-button');button.disabled=true;try{const data=await api('/api/mine',{method:'POST'});toast(`Block #${data.block_index} sealed successfully.`);await fetchLedger();}catch(error){toast(error.message);}finally{button.disabled=!ledgerData.pending.length;}};
-function openCheckIn(){ $('form-error').textContent='';$('scan-token').value=scannedToken||currentToken;$('check-in-dialog').showModal(); }
-$('check-in-button').onclick=openCheckIn;$('attendance-check-in').onclick=openCheckIn;$('close-dialog').onclick=()=>$('check-in-dialog').close();
-$('check-in-form').onsubmit=async event=>{event.preventDefault();const button=$('submit-check-in');button.disabled=true;$('form-error').textContent='';try{const data=await api('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(event.target)), token: scannedToken ? $('scan-token').value : (await api('/api/qr-epoch')).token})});$('check-in-dialog').close();event.target.reset();scannedToken=null;history.replaceState(null,'',location.pathname);toast(data.message);await fetchLedger();}catch(error){$('form-error').textContent=error.message;}finally{button.disabled=false;}};
-$('export-button').onclick=()=>{if(!records.length){toast('No attendance records to export yet.');return;}const cell=value=>'"'+String(value).replace(/^[\s]*[=+@-]|^[\t\r\n]/,"'$&").replace(/"/g,'""')+'"';const csv=[['Student ID','Name','Checked in (UTC)','Status'],...records.map(r=>[r.student_id,r.name,new Date(r.timestamp*1000).toISOString(),r.pending?'Pending':'Sealed'])].map(row=>row.map(cell).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download='provex-attendance.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Attendance export downloaded.');};
-fetchEpoch();pollLedger();if(scannedToken)openCheckIn();
+
+function setView(next){
+ const titles={overview:['Overview','University of Mumbai · SEM VII · Blockchain & Technology'],attendance:['Attendance','Every lecture and practical, in one place.'],ledger:['Blockchain ledger','A transparent trail, from the first block onward.'],students:['Student profiles','Their name. Their roll number. Their personal QR.']};
+ $('page-title').textContent=titles[next][0];$('breadcrumb').textContent=titles[next][0];$('page-description').textContent=titles[next][1];
+ $('hero').hidden=next!=='overview';$('overview-panels').hidden=next!=='overview';$('attendance-panel').hidden=next!=='attendance';$('students-panel').hidden=next!=='students';$('ledger-panel').hidden=!['overview','ledger'].includes(next);
+ document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===next));
+ if(next==='students')loadRoster().catch(error=>toast(error.message));
+}
+document.querySelectorAll('.nav').forEach(n=>n.addEventListener('click',()=>setView(n.dataset.view)));
+$('view-all').onclick=()=>setView('attendance');$('search').oninput=renderAttendance;
+$('mine-button').onclick=async()=>{const button=$('mine-button');button.disabled=true;try{const data=await post('/api/mine');toast(`Block #${data.block_index} sealed successfully.`);await fetchLedger();}catch(error){toast(error.message);}finally{button.disabled=!ledgerData.pending.length;}};
+$('start-session').onclick=async()=>{
+ const kind=$('session-type').value;
+ if(!confirm('Start a new '+kind.toLowerCase()+'? This creates a fresh attendance session. Existing records are kept.'))return;
+ $('start-session').disabled=true;
+ try{await post('/api/class',{type:kind});await fetchLedger();toast(kind+' started. Scan each student once for this session.');}catch(error){toast(error.message);}finally{$('start-session').disabled=false;}
+};
+async function loadRoster(){const data=await api('/api/students');$('students-body').innerHTML=data.students.map(s=>`<tr><td class="block-tag">#${escapeHtml(s.student_id)}</td><td>${escapeHtml(s.name)}</td><td>VII</td><td><span class="pill green">Profile ready</span></td></tr>`).join('');}
+$('student-form').onsubmit=async event=>{event.preventDefault();$('create-student').disabled=true;$('roster-error').textContent='';try{await post('/api/students',Object.fromEntries(new FormData(event.target)));event.target.reset();await loadRoster();toast('Student profile created. They can now sign in.');await fetchLedger();}catch(error){$('roster-error').textContent=error.message;}finally{$('create-student').disabled=false;}};
+$('copy-student-link').onclick=async()=>{try{await navigator.clipboard.writeText(location.origin+'/student');toast('Student portal link copied.');}catch{toast('Student portal: '+location.origin+'/student');}};
+$('logout').onclick=async()=>{try{const data=await post('/api/logout');location.href=data.redirect;}catch(error){toast(error.message);}};
+
+let scanner=null, starting=null, scanBusy=false, lastToken='', lastScan=0;
+function openCheckIn(){ $('scan-result').textContent='';$('check-in-dialog').showModal(); }
+$('check-in-button').onclick=openCheckIn;$('attendance-check-in').onclick=openCheckIn;$('class-scan').onclick=openCheckIn;
+$('close-dialog').onclick=()=>$('check-in-dialog').close();
+async function stopCamera(){if(starting){try{await starting;}catch{}}if(scanner?.isScanning){try{await scanner.stop();}catch{}}}
+$('check-in-dialog').addEventListener('close',()=>{stopCamera();$('scan-token').value='';$('qr-file').value='';});
+function getScanner(){if(!window.Html5Qrcode)throw new Error('QR scanner could not load. Reload the page or paste a decoded token.');if(!scanner)scanner=new Html5Qrcode('camera-reader');return scanner;}
+async function submitToken(token){
+ if(scanBusy || (token===lastToken && Date.now()-lastScan<4000))return;
+ scanBusy=true;lastToken=token;lastScan=Date.now();$('submit-check-in').disabled=true;
+ try{const data=await post('/api/scan',{token});$('scan-result').textContent='✓ '+data.message;$('scan-result').className='scan-success';toast(data.message);await fetchLedger();}
+ catch(error){$('scan-result').textContent=error.message;$('scan-result').className='scan-error';}
+ finally{scanBusy=false;$('submit-check-in').disabled=false;}
+}
+$('start-camera').onclick=async()=>{
+ $('start-camera').disabled=true;$('scan-result').textContent='';
+ try{const reader=getScanner();if(reader.isScanning)return;
+ starting=reader.start({facingMode:'environment'},{fps:10,qrbox:(w,h)=>{const size=Math.floor(Math.min(w,h)*.75);return {width:size,height:size};}},decoded=>{if($('check-in-dialog').open)submitToken(decoded);},()=>{});
+ await starting;
+ if(!$('check-in-dialog').open)await stopCamera();
+ }catch{$('scan-result').textContent='Camera unavailable. Open this page in an HTTPS browser, allow camera access, or choose a QR image below.';$('scan-result').className='scan-error';}
+ finally{starting=null;$('start-camera').disabled=false;}
+};
+$('qr-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{await stopCamera();const decoded=await getScanner().scanFile(file,true);await submitToken(decoded);}catch{$('scan-result').textContent='Could not read this QR image. Choose a clear image of the student’s current code.';$('scan-result').className='scan-error';}finally{event.target.value='';}};
+$('check-in-form').onsubmit=event=>{event.preventDefault();submitToken($('scan-token').value.trim());};
+$('export-button').onclick=()=>{
+ if(!records.length){toast('No attendance records to export yet.');return;}
+ const cell=value=>'"'+String(value).replace(/^[\s]*[=+@-]|^[\t\r\n]/,"'$&").replace(/"/g,'""')+'"';
+ const csv=[['Roll number','Name','Subject','Semester','Class','Session ID','Checked in (UTC)','Attendance','Ledger status'],...records.map(r=>[r.student_id,r.name,r.subject,r.semester,r.session_type,r.session_id,new Date(r.timestamp*1000).toISOString(),'Present',r.pending?'Pending':'Sealed'])].map(row=>row.map(cell).join(',')).join('\r\n');
+ const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download='bcoe-sem-vii-attendance.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Attendance export downloaded.');
+};
+pollLedger();
