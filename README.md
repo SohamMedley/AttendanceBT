@@ -346,6 +346,15 @@ whatever is in `data/attendance_ledger.json` on first connect.
   A database outage must never stop a lecturer taking attendance.
 * The local and cloud backends implement the *same* document interface, so every query is
   written once. Use `python manage.py export` for a portable backup at any time.
+* **There are no composite indexes to create in the Firebase console.** Firestore needs one
+  as soon as an equality filter is ordered by a different field, and a query that relies on
+  it fails with `FAILED_PRECONDITION: The query requires an index` on any project where
+  nobody created it by hand — which is how the first deployment broke every page at once.
+  So `FirestoreStore.list` sends equality filters only and does the ordering, comparison
+  filters and limiting in Python. Every query is served by Firestore's automatic
+  single-field indexes, and the app works on a brand-new Firebase project with no setup
+  beyond pasting the service account. Ordering a paged read stays deterministic because
+  Firestore appends `__name__ ASC` to any query that does not order explicitly.
 * **The keystore is mirrored into Firestore too.** A hosting container's filesystem is
   wiped on every deploy, so a file-only keystore would leave the chain full of records
   whose signing keys no longer exist — the next attendance mark would fail. Keys are
